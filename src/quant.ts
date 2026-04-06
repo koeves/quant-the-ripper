@@ -22,14 +22,6 @@
 declare function post(...args: any[]): void;
 declare function error(...args: any[]): void;
 
-declare class Dict {
-    name: string;
-    constructor(name?: string);
-    get(key: string): any;
-    getkeys(): string[] | null;
-    set(key: string, value: any): void;
-}
-
 declare class LiveAPI {
     id: number | string;
     path: string;
@@ -75,6 +67,16 @@ function bang(): void {
     post("ready\n");
 }
 
+function inspect(clip: LiveAPI): void {
+    post("clip path: " + clip.path + "\n");
+    post("is_audio_clip raw: " + clip.get("is_audio_clip") + "\n");
+    post("is_arrangement_clip raw: " + clip.get("is_arrangement_clip") + "\n");
+    post("file_path raw: " + clip.get("file_path") + "\n");
+    post("sample_length raw: " + clip.get("sample_length") + "\n");
+    post("sample_rate raw: " + clip.get("sample_rate") + "\n");
+    post("name raw: " + clip.get("name") + "\n");
+}
+
 /**
  * run <sliceBeats> <warpMode> <startBeat>
  * Example: run 16 0 0
@@ -105,7 +107,9 @@ function run(sliceBeats: number = 16, warpMode: WarpMode = 0, startBeat: number 
             return;
         }
 
-        const filePath = toJoinedString(clip.get("file_path"));
+        inspect(clip);
+
+        const filePath = toPropertyString(clip.get("file_path"));
         if (!filePath) {
             error("Could not read file_path from clip.\n");
             return;
@@ -123,11 +127,15 @@ function run(sliceBeats: number = 16, warpMode: WarpMode = 0, startBeat: number 
 
         const track = new LiveAPI(undefined, trackPath);
 
+        densifySourceWarpMap(clip, sliceBeats);
+
         const warpMarkers = getWarpMarkersFromClip(clip);
         if (!warpMarkers || warpMarkers.length < 2) {
             error("Could not parse warp_markers from selected clip.\n");
             return;
         }
+
+        post(`Parsed ${warpMarkers.length} warp markers: ${warpMarkers}`);
 
         warpMarkers.sort((a, b) => a.beat_time - b.beat_time);
 
@@ -198,37 +206,31 @@ function run(sliceBeats: number = 16, warpMode: WarpMode = 0, startBeat: number 
 }
 
 // ---------- Helpers ----------
-function lastValue(v: any): any {
-    return Array.isArray(v) ? v[v.length - 1] : v;
-}
-
-function toNumber(v: any): number {
-    return Number(v);
-}
-
-function toJoinedString(v: any): string {
-    if (Array.isArray(v)) {
-        return v.slice(1).join(" ");
-    }
-    return String(v ?? "");
-}
-
-function safeSet(api: LiveAPI, prop: string, value: any): void {
-    try {
-        api.set(prop, value);
-    } catch (e: any) {
-        post(`Warning: failed to set ${prop}=${value}: ${String(e)}\n`);
-    }
-}
-
 function addWarpMarker(clip: LiveAPI, beatTime: number, sampleTime: number): void {
     try {
-        const d = new Dict();
-        d.set("beat_time", beatTime);
-        d.set("sample_time", sampleTime);
-        clip.call("add_warp_marker", "dict", d.name);
+        clip.call("add_warp_marker", { "beat_time": beatTime, "sample_time": sampleTime });
     } catch (e: any) {
         post(`Warning: add_warp_marker failed at beat ${beatTime}: ${String(e)}\n`);
+    }
+}
+
+function addWarpMarkerByBeatOnly(clip: LiveAPI, beatTime: number): void {
+    try {
+        // Intentionally DO NOT set sample_time
+        clip.call("add_warp_marker", { "beat_time": beatTime });
+    } catch (e: any) {
+        post(`Warning: addWarpMarkerByBeatOnly failed at beat ${beatTime}: ${String(e)}\n`);
+    }
+}
+
+function densifySourceWarpMap(clip: LiveAPI, sliceBeats: number): void {
+    const clipStartBeat = Number(lastValue(clip.get("start_marker")));
+    const clipEndBeat = Number(lastValue(clip.get("end_marker")));
+
+    post(`Densifying warp map from ${clipStartBeat} to ${clipEndBeat} every ${sliceBeats} beats\n`);
+
+    for (let beat = clipStartBeat; beat <= clipEndBeat + 1e-6; beat += sliceBeats) {
+        addWarpMarkerByBeatOnly(clip, beat);
     }
 }
 
@@ -254,49 +256,37 @@ function findArrangementClipByStartTime(trackPath: string, startBeat: number): L
     return null;
 }
 
-/**
- * Parse warp_markers dict returned by Live.
- * The exact nested shape can vary a bit in practice, so this function is defensive.
- */
 function getWarpMarkersFromClip(clip: LiveAPI): WarpMarker[] | null {
     try {
         const raw = clip.get("warp_markers");
+        post("RAW warp markers:\n");
+        post(JSON.stringify(raw, null, 2) + "\n");
 
-        let dictName: string | null = null;
-        if (Array.isArray(raw)) {
-            for (const item of raw) {
-                if (typeof item === "string" && item !== "dictionary") {
-                    dictName = item;
-                    break;
-                }
-            }
+        let parsed: any = null;
+
+        if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === "string") {
+            parsed = JSON.parse(raw[0]);
         } else if (typeof raw === "string") {
-            dictName = raw;
+            parsed = JSON.parse(raw);
+        } else {
+            return null;
         }
 
-        if (!dictName) return null;
-
-        const d = new Dict(dictName);
-        const keys = d.getkeys();
-        if (!keys) return null;
-
-        const wm = d.get("warp_markers");
-        if (!wm) return null;
+        if (!parsed || !Array.isArray(parsed.warp_markers)) {
+            return null;
+        }
 
         const out: WarpMarker[] = [];
-
-        // Typical case: array of marker-like dict objects
-        if (Array.isArray(wm)) {
-            for (const item of wm) {
-                if (item && typeof item === "object" && "beat_time" in item && "sample_time" in item) {
-                    out.push({
-                        beat_time: Number((item as any).beat_time),
-                        sample_time: Number((item as any).sample_time),
-                    });
-                }
+        for (const item of parsed.warp_markers) {
+            if (item && typeof item === "object") {
+                out.push({
+                    beat_time: Number(item.beat_time),
+                    sample_time: Number(item.sample_time),
+                });
             }
         }
 
+        out.sort((a, b) => a.beat_time - b.beat_time);
         return out.length ? out : null;
     } catch (e: any) {
         post(`getWarpMarkersFromClip failed: ${String(e)}\n`);
@@ -321,6 +311,36 @@ function beatToSampleTime(beatTime: number, markers: WarpMarker[]): number {
     }
 
     return markers[markers.length - 1].sample_time;
+}
+
+// ---------- Utils ----------
+
+function lastValue(v: any): any {
+    return Array.isArray(v) ? v[v.length - 1] : v;
+}
+
+function toNumber(v: any): number {
+    return Number(v);
+}
+
+function toPropertyString(v: any): String {
+    if (v === null || v === undefined) return "";
+
+    if (Array.isArray(v)) {
+        if (v.length === 0) return "";
+        if (v.length === 1) return String(v[0]);
+        return String(v[v.length - 1]);
+    }
+
+    return String(v);
+}
+
+function safeSet(api: LiveAPI, prop: string, value: any): void {
+    try {
+        api.set(prop, value);
+    } catch (e: any) {
+        post(`Warning: failed to set ${prop}=${value}: ${String(e)}\n`);
+    }
 }
 
 function pad2(n: number): string {
