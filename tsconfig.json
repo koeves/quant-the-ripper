@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+        "target": "ES2019",
+        "module": "none",
+        "strict": true,
+        "noEmitOnError": false,
+        "outDir": "dist",
+        "removeComments": false
+    },
+    "include": [
+        "src/**/*.ts"
+    ]
+}
