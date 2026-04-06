@@ -19,15 +19,11 @@ namespace Utils {
         return String(v);
     }
 
-    export function safeSet(api: Live.LiveAPI, prop: string, value: any): void {
+    export function safeSet(api: LiveAPI, prop: string, value: any): void {
         try {
             api.set(prop, value);
         } catch (e: any) {
-            Live.post(`Warning: failed to set ${prop}=${value}: ${String(e)}\n`);
+            post(`Warning: failed to set ${prop}=${value}: ${String(e)}\n`);
         }
-    }
-
-    export function pad2(n: number): string {
-        return n < 10 ? `0${n}` : String(n);
     }
 }

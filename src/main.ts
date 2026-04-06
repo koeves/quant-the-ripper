@@ -4,11 +4,11 @@ const state: Model.RuntimeState = {
 
 function init(): void {
     state.initialized = true;
-    Live.post("vinyl_slice_warp initialized\n");
+    post("vinyl_slice_warp initialized\n");
 }
 
 function bang(): void {
-    Live.post("ready\n");
+    post("ready\n");
 }
 
 /**
@@ -17,7 +17,7 @@ function bang(): void {
      */
 function run(sliceBeats: number = 16, warpMode: Model.WarpMode = 0, startBeat: number = 0): void {
     if (!state.initialized) {
-        Live.error("Device not initialized yet. Trigger init from live.thisdevice first.\n");
+        error("Device not initialized yet. Trigger init from live.thisdevice first.\n");
         return;
     }
 

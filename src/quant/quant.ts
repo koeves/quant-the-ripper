@@ -1,9 +1,9 @@
 namespace Quant {
     export function run(sliceBeats: number = 16, warpMode: Model.WarpMode = 0, startBeat: number = 0): void {
         try {
-            const clip = new Live.LiveAPI(undefined, "live_set view detail_clip");
+            const clip = new LiveAPI(undefined, "live_set view detail_clip");
             if (!clip || !clip.id || Number(clip.id) === 0) {
-                Live.error("No detail clip selected.\n");
+                error("No detail clip selected.\n");
                 return;
             }
 
@@ -11,20 +11,20 @@ namespace Quant {
             const isArrangement = Utils.toNumber(Utils.lastValue(clip.get("is_arrangement_clip")));
 
             if (isAudio !== 1) {
-                Live.error("Selected detail clip is not an audio clip.\n");
+                error("Selected detail clip is not an audio clip.\n");
                 return;
             }
 
             if (isArrangement !== 1) {
-                Live.error("Selected detail clip is not an Arrangement clip.\n");
+                error("Selected detail clip is not an Arrangement clip.\n");
                 return;
             }
 
-            inspect(clip);
+            Live.inspect(clip);
 
             const filePath = Utils.toPropertyString(clip.get("file_path"));
             if (!filePath) {
-                Live.error("Could not read file_path from clip.\n");
+                error("Could not read file_path from clip.\n");
                 return;
             }
 
@@ -34,21 +34,21 @@ namespace Quant {
 
             const trackPath = Live.parentTrackPath(clip.path);
             if (!trackPath) {
-                Live.error("Could not determine parent track path.\n");
+                error("Could not determine parent track path.\n");
                 return;
             }
 
-            const track = new Live.LiveAPI(undefined, trackPath);
+            const track = new LiveAPI(undefined, trackPath);
 
             Live.densifySourceWarpMap(clip, sliceBeats);
 
             const warpMarkers = Live.getWarpMarkersFromClip(clip);
             if (!warpMarkers || warpMarkers.length < 2) {
-                Live.error("Could not parse warp_markers from selected clip.\n");
+                error("Could not parse warp_markers from selected clip.\n");
                 return;
             }
 
-            Live.post(`Parsed ${warpMarkers.length} warp markers: ${warpMarkers}`);
+            post(`Parsed ${warpMarkers.length} warp markers: ${warpMarkers}`);
 
             warpMarkers.sort((a, b) => a.beat_time - b.beat_time);
 
@@ -68,7 +68,7 @@ namespace Quant {
                 const srcDurSampleTime = srcSampleEnd - srcSampleStart;
 
                 if (srcDurSampleTime <= 1e-6) {
-                    Live.post(`Skipping slice at beat ${segBeatStart} because duration <= 0\n`);
+                    post(`Skipping slice at beat ${segBeatStart} because duration <= 0\n`);
                     continue;
                 }
 
@@ -78,7 +78,7 @@ namespace Quant {
 
                 const newClip = Live.findArrangementClipByStartTime(trackPath, destBeat);
                 if (!newClip) {
-                    Live.post(`Could not find newly created clip at beat ${destBeat}\n`);
+                    post(`Could not find newly created clip at beat ${destBeat}\n`);
                     continue;
                 }
 
@@ -96,25 +96,15 @@ namespace Quant {
                 Utils.safeSet(newClip, "start_marker", 0.0);
                 Utils.safeSet(newClip, "end_marker", actualBeats);
 
-                Utils.safeSet(newClip, "name", `slice_${Utils.pad2(sliceIndex + 1)}`);
+                Utils.safeSet(newClip, "name", `slice_${sliceIndex + 1}`);
 
                 sliceIndex += 1;
                 created += 1;
             }
 
-            Live.post(`Done. Created ${created} slices.\n`);
+            post(`Done. Created ${created} slices.\n`);
         } catch (e: any) {
-            Live.error(`run() failed: ${String(e)}\n`);
+            error(`run() failed: ${String(e)}\n`);
         }
-    }
-
-    function inspect(clip: Live.LiveAPI): void {
-        Live.post("clip path: " + clip.path + "\n");
-        Live.post("is_audio_clip raw: " + clip.get("is_audio_clip") + "\n");
-        Live.post("is_arrangement_clip raw: " + clip.get("is_arrangement_clip") + "\n");
-        Live.post("file_path raw: " + clip.get("file_path") + "\n");
-        Live.post("sample_length raw: " + clip.get("sample_length") + "\n");
-        Live.post("sample_rate raw: " + clip.get("sample_rate") + "\n");
-        Live.post("name raw: " + clip.get("name") + "\n");
     }
 }

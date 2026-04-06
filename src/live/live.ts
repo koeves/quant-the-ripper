@@ -1,46 +1,56 @@
+declare function post(...args: any[]): void;
+declare function error(...args: any[]): void;
+
+declare class LiveAPI {
+    id: number | string;
+    path: string;
+    unquotedpath: string;
+    property: string;
+    mode: number;
+    type: string;
+    info: string;
+
+    constructor(callback?: ((args: any[]) => void) | null, pathOrId?: string | number);
+    get(property: string): any;
+    set(property: string, value: any): void;
+    call(functionName: string, ...args: any[]): any;
+    goto(path: string): void;
+    getcount(child: string): number;
+}
+
 namespace Live {
-    export declare function post(...args: any[]): void;
-    export declare function error(...args: any[]): void;
-
-    export declare class LiveAPI {
-        id: number | string;
-        path: string;
-        unquotedpath: string;
-        property: string;
-        mode: number;
-        type: string;
-        info: string;
-
-        constructor(callback?: ((args: any[]) => void) | null, pathOrId?: string | number);
-        get(property: string): any;
-        set(property: string, value: any): void;
-        call(functionName: string, ...args: any[]): any;
-        goto(path: string): void;
-        getcount(child: string): number;
+    export function inspect(clip: LiveAPI): void {
+        post("clip path: " + clip.path + "\n");
+        post("is_audio_clip raw: " + clip.get("is_audio_clip") + "\n");
+        post("is_arrangement_clip raw: " + clip.get("is_arrangement_clip") + "\n");
+        post("file_path raw: " + clip.get("file_path") + "\n");
+        post("sample_length raw: " + clip.get("sample_length") + "\n");
+        post("sample_rate raw: " + clip.get("sample_rate") + "\n");
+        post("name raw: " + clip.get("name") + "\n");
     }
-
-    export function addWarpMarker(clip: Live.LiveAPI, beatTime: number, sampleTime: number): void {
+    
+    export function addWarpMarker(clip: LiveAPI, beatTime: number, sampleTime: number): void {
         try {
             clip.call("add_warp_marker", { "beat_time": beatTime, "sample_time": sampleTime });
         } catch (e: any) {
-            Live.post(`Warning: add_warp_marker failed at beat ${beatTime}: ${String(e)}\n`);
+            post(`Warning: add_warp_marker failed at beat ${beatTime}: ${String(e)}\n`);
         }
     }
 
-    export function addWarpMarkerByBeatOnly(clip: Live.LiveAPI, beatTime: number): void {
+    export function addWarpMarkerByBeatOnly(clip: LiveAPI, beatTime: number): void {
         try {
             // Intentionally DO NOT set sample_time
             clip.call("add_warp_marker", { "beat_time": beatTime });
         } catch (e: any) {
-            Live.post(`Warning: addWarpMarkerByBeatOnly failed at beat ${beatTime}: ${String(e)}\n`);
+            post(`Warning: addWarpMarkerByBeatOnly failed at beat ${beatTime}: ${String(e)}\n`);
         }
     }
 
-    export function densifySourceWarpMap(clip: Live.LiveAPI, sliceBeats: number): void {
+    export function densifySourceWarpMap(clip: LiveAPI, sliceBeats: number): void {
         const clipStartBeat = Number(Utils.lastValue(clip.get("start_marker")));
         const clipEndBeat = Number(Utils.lastValue(clip.get("end_marker")));
 
-        Live.post(`Densifying warp map from ${clipStartBeat} to ${clipEndBeat} every ${sliceBeats} beats\n`);
+        post(`Densifying warp map from ${clipStartBeat} to ${clipEndBeat} every ${sliceBeats} beats\n`);
 
         for (let beat = clipStartBeat; beat <= clipEndBeat + 1e-6; beat += sliceBeats) {
             addWarpMarkerByBeatOnly(clip, beat);
@@ -54,12 +64,12 @@ namespace Live {
         return `live_set tracks ${parts[idx + 1]}`;
     }
 
-    export function findArrangementClipByStartTime(trackPath: string, startBeat: number): Live.LiveAPI | null {
-        const track = new Live.LiveAPI(undefined, trackPath);
+    export function findArrangementClipByStartTime(trackPath: string, startBeat: number): LiveAPI | null {
+        const track = new LiveAPI(undefined, trackPath);
         const count = track.getcount("arrangement_clips");
 
         for (let i = 0; i < count; i++) {
-            const c = new Live.LiveAPI(undefined, `${trackPath} arrangement_clips ${i}`);
+            const c = new LiveAPI(undefined, `${trackPath} arrangement_clips ${i}`);
             const st = Utils.toNumber(Utils.lastValue(c.get("start_time")));
             if (Math.abs(st - startBeat) < 1e-4) {
                 return c;
@@ -69,11 +79,11 @@ namespace Live {
         return null;
     }
 
-    export function getWarpMarkersFromClip(clip: Live.LiveAPI): Model.WarpMarker[] | null {
+    export function getWarpMarkersFromClip(clip: LiveAPI): Model.WarpMarker[] | null {
         try {
             const raw = clip.get("warp_markers");
-            Live.post("RAW warp markers:\n");
-            Live.post(JSON.stringify(raw, null, 2) + "\n");
+            post("RAW warp markers:\n");
+            post(JSON.stringify(raw, null, 2) + "\n");
 
             let parsed: any = null;
 
@@ -102,7 +112,7 @@ namespace Live {
             out.sort((a, b) => a.beat_time - b.beat_time);
             return out.length ? out : null;
         } catch (e: any) {
-            Live.post(`getWarpMarkersFromClip failed: ${String(e)}\n`);
+            post(`getWarpMarkersFromClip failed: ${String(e)}\n`);
             return null;
         }
     }
