@@ -195,6 +195,8 @@ namespace Live {
             const raw = clip.get("warp_markers");
             let parsed: any = null;
 
+            // post(`warp markers: ${JSON.stringify(raw)}`)
+
             if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === "string") {
                 parsed = JSON.parse(raw[0]);
             } else if (typeof raw === "string") {
@@ -350,22 +352,38 @@ namespace Live {
         clip: LiveAPI,
         beatTime: number,
         beatTimeDistance: number
-    ): void {
-        try {
-            clip.call("move_warp_marker", beatTime, beatTimeDistance);
-        } catch (e: any) {
-            post(
-                "Warning: move_warp_marker failed at beatTime=" + beatTime +
-                ", beatTimeDistance=" + beatTimeDistance +
-                ": " + String(e) + "\n"
-            );
-        }
+    ): number {
+        const res = JSON.stringify(clip.call("move_warp_marker", beatTime.toFixed(6), beatTimeDistance));
+        post(`move success: ${res}`);
+        return 1;
     }
 
     export function selectedClipMatchesLastAnalysis(): boolean {
         const clip = clipInfo();
         if (!clip) return false;
         return String(clip.id) === State.state.lastClipId;
+    }
+
+    export function findNearestMarkerBySampleTime(
+        markers: Model.WarpMarker[],
+        sampleTime: number,
+        maxDistanceSec: number
+    ): Model.WarpMarker | null {
+        let best: Model.WarpMarker | null = null;
+        let bestDist = Number.POSITIVE_INFINITY;
+
+        for (let i = 0; i < markers.length; i++) {
+            const m = markers[i];
+            const d = Math.abs(m.sample_time - sampleTime);
+            if (d < bestDist) {
+                best = m;
+                bestDist = d;
+            }
+        }
+
+        if (!best) return null;
+        if (bestDist > maxDistanceSec) return null;
+        return best;
     }
 }
 
@@ -477,12 +495,12 @@ namespace Quant {
 
             points.push({
                 index: idx,
-                targetBeat: Utils.round(targetBeat, 6),
-                markerBeat: Utils.round(markerBeat, 6),
-                markerSampleTime: Utils.round(markerSampleTime, 6),
-                driftBeats: Utils.round(driftBeats, 6),
-                driftMs: Utils.round(driftMs, 3),
-                absDriftBeats: Utils.round(Utils.abs(driftBeats), 6),
+                targetBeat: targetBeat,
+                markerBeat: markerBeat,
+                markerSampleTime: markerSampleTime,
+                driftBeats: driftBeats,
+                driftMs: driftMs,
+                absDriftBeats: Utils.abs(driftBeats),
                 accepted: accepted,
                 reason: reason
             });
@@ -524,9 +542,9 @@ namespace Quant {
         const graphPoints: Model.GraphPoint[] = points.map(function (p) {
             return {
                 i: p.index,
-                xBeat: p.targetBeat,
-                yBeats: p.driftBeats,
-                yMs: p.driftMs,
+                xBeat: Utils.round(p.targetBeat, 6),
+                yBeats: Utils.round(p.driftBeats, 6),
+                yMs: Utils.round(p.driftMs, 3),
                 ok: p.accepted
             };
         });
@@ -649,21 +667,12 @@ namespace Quant {
                 return;
             }
 
-            const duplicatedMarkers = Live.getWarpMarkersFromClip(newClip);
-
-            if (!duplicatedMarkers) {
-                error("No warp markers on duplicated track");
-            }
-            if (duplicatedMarkers && duplicatedMarkers.length != analysis.points.length) {
-                post("Duplicated clip warp markers are not the same as original tracks: duplicated warp markers length=" + duplicatedMarkers.length + " original=" + analysis.points.length + "\n");
-            }
-
             post("Created comparison clip at path: " + newClip.path + "\n");
 
             let moved = 0;
             let skippedRejected = 0;
             let skippedNoSample = 0;
-            let skippedTinyDrift = 0;
+            let skippedNoWarpPoint = 0;
 
             for (let i = 0; i < analysis.points.length; i++) {
                 const p = analysis.points[i];
@@ -678,21 +687,36 @@ namespace Quant {
                     continue;
                 }
 
-                if (Utils.abs(p.driftBeats) < 0.005) {
-                    skippedTinyDrift += 1;
+                const markers = Live.getWarpMarkersFromClip(newClip);
+                const origMarkers = Live.getWarpMarkersFromClip(originalClip);
+
+                if (markers !== origMarkers) error("markers are different")
+
+                const marker = Live.findNearestMarkerBySampleTime(
+                    markers!,
+                    p.markerSampleTime,
+                    0.001
+                );
+
+                if (!markers) {
+                    post(
+                        "[apply " + i + "] no duplicated marker near sampleTime=" +
+                        p.markerSampleTime + "\n"
+                    );
+                    skippedNoWarpPoint++;
                     continue;
                 }
 
-                const beatDistance = p.targetBeat - p.markerBeat;
+                const beatDistance = p.targetBeat - marker!.beat_time;
 
                 post(
-                    "[apply " + i + "] markerBeat=" + p.markerBeat +
-                    ", beatDistance=" + beatDistance +
-                    ", targetBeat=" + p.targetBeat + "\n"
+                    "[apply " + i + "] dupMarkerBeat=" + marker!.beat_time.toFixed(12) +
+                    ", beatDistance=" + beatDistance.toFixed(12) +
+                    ", targetBeat=" + p.targetBeat.toFixed(12) + "\n"
                 );
 
-                Live.moveWarpMarkerByBeatDistance(newClip, p.markerBeat, beatDistance);
-                moved += 1;
+                const move = Live.moveWarpMarkerByBeatDistance(newClip, p.markerBeat, beatDistance);
+                moved += move;
             }
 
             post(
@@ -700,7 +724,7 @@ namespace Quant {
                 "moved=" + moved +
                 ", skippedRejected=" + skippedRejected +
                 ", skippedNoSample=" + skippedNoSample +
-                ", skippedTinyDrift=" + skippedTinyDrift + "\n"
+                ", skippedNoWarpPoint=" + skippedNoWarpPoint + "\n"
             );
             post("Original clip was not modified.\n");
 
