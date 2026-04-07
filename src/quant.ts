@@ -314,16 +314,7 @@ namespace Quant {
         State.state.lastAnalysis = null;
         State.state.lastGraph = null;
         State.state.lastClipId = "";
-        outlet(0, "analysis_json", JSON.stringify({ type: "analysis_cleared" }));
         outlet(0, "graph_json", JSON.stringify({ type: "graph_cleared" }));
-    }
-
-    export function dump_analysis(): void {
-        if (!State.state.lastAnalysis) {
-            post("No stored analysis.\n");
-            return;
-        }
-        post(JSON.stringify(State.state.lastAnalysis, null, 2) + "\n");
     }
 
     export function dump_graph(): void {
@@ -338,7 +329,6 @@ namespace Quant {
         gridBeats: number = 4,
         toleranceBeats: number = 0.5,
         startBeat: number = 0,
-        maxPoints: number = 128
     ): void {
         try {
             if (!State.state.initialized) {
@@ -388,11 +378,6 @@ namespace Quant {
                 return;
             }
 
-            if (!(maxPoints > 0)) {
-                error("maxPoints must be > 0\n");
-                return;
-            }
-
             const rawMarkers = Live.getWarpMarkersFromClip(clip);
             if (!rawMarkers || rawMarkers.length < 2) {
                 error("Could not parse source warp markers.\n");
@@ -411,11 +396,7 @@ namespace Quant {
             const points: Model.AnalysisPoint[] = [];
 
             let idx = 0;
-            for (
-                let targetBeat = firstBeat;
-                targetBeat <= clipEndBeat + 1e-9 && idx < maxPoints;
-                targetBeat += gridBeats, idx++
-            ) {
+            for (let targetBeat = firstBeat; targetBeat <= clipEndBeat + 1e-9; targetBeat += gridBeats) {
                 const nearest = Live.findNearestUnusedWarpMarkerAroundBeat(
                     targetBeat,
                     sourceMarkers,
@@ -539,27 +520,10 @@ namespace Quant {
                 `meanAbsDriftMs=${analysis.summary.meanAbsDriftMs}\n`
             );
 
-            outlet(0, "analysis_json", JSON.stringify({
-                type: "analysis",
-                payload: analysis
-            }));
-
-            outlet(0, "graph_json", JSON.stringify({
-                type: "graph",
-                payload: graph
-            }));
+            outlet(0, "graph_json", JSON.stringify(graph));
         } catch (e: any) {
             error(`analyze() failed: ${String(e)}\n`);
         }
-    }
-
-    export function run(
-        gridBeats: number = 4,
-        toleranceBeats: number = 0.5,
-        startBeat: number = 0,
-        maxPoints: number = 128
-    ): void {
-        analyze(gridBeats, toleranceBeats, startBeat, maxPoints);
     }
 }
 
@@ -575,26 +539,12 @@ function analyze(
     gridBeats?: number,
     toleranceBeats?: number,
     startBeat?: number,
-    maxPoints?: number
 ): void {
-    Quant.analyze(gridBeats, toleranceBeats, startBeat, maxPoints);
-}
-
-function run(
-    gridBeats?: number,
-    toleranceBeats?: number,
-    startBeat?: number,
-    maxPoints?: number
-): void {
-    Quant.run(gridBeats, toleranceBeats, startBeat, maxPoints);
+    Quant.analyze(gridBeats, toleranceBeats, startBeat);
 }
 
 function clear_analysis(): void {
     Quant.clear_analysis();
-}
-
-function dump_analysis(): void {
-    Quant.dump_analysis();
 }
 
 function dump_graph(): void {

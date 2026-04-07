@@ -31,128 +31,276 @@ namespace GraphModel {
     }
 }
 
-namespace DriftGraphUI {
-    let graph: GraphModel.GraphPayload | null = null;
+mgraphics.init();
+mgraphics.relative_coords = 0;
+mgraphics.autofill = 0;
 
-    export function setup(): void {
-        mgraphics.init();
-        mgraphics.relative_coords = 0;
-        mgraphics.autofill = 0;
-    }
+var graph: GraphModel.GraphPayload | null = null;
 
-    export function loadbang(): void {
-        setup();
+var COLORS = {
+    bg: [0.16, 0.16, 0.16, 1.0],
+    panelBorder: [0.28, 0.28, 0.28, 1.0],
+    grid: [0.24, 0.24, 0.24, 1.0],
+    axis: [0.62, 0.62, 0.62, 1.0],
+    zero: [0.82, 0.82, 0.82, 1.0],
+    tolerance: [0.60, 0.60, 0.60, 0.95],
+    toleranceFill: [0.22, 0.22, 0.22, 0.85],
+    text: [0.88, 0.88, 0.88, 1.0],
+    mutedText: [0.65, 0.65, 0.65, 1.0],
+    ok: [0.53, 0.74, 0.53, 1.0],
+    reject: [0.78, 0.42, 0.42, 0.95]
+};
+
+function loadbang() {
+    post("graph loadbang\n");
+    mgraphics.redraw();
+}
+
+function clear() {
+    post("graph clear\n");
+    graph = null;
+    mgraphics.redraw();
+}
+
+function graph_json() {
+    try {
+        var args = arrayfromargs(arguments);
+        var s = "";
+        for (var i = 0; i < args.length; i++) {
+            if (i > 0) s += " ";
+            s += String(args[i]);
+        }
+
+        graph = JSON.parse(s);
+
+        if (graph) {
+            post("graph parsed, points=" + (graph.points ? graph.points.length : -1) + "\n");
+            post("yMinBeats=" + graph.yMinBeats + " yMaxBeats=" + graph.yMaxBeats + "\n");
+        }
+
         mgraphics.redraw();
+    } catch (e) {
+        post("graph_json failed: " + e + "\n");
+    }
+}
+
+function setColor(c: Array<number>) {
+    mgraphics.set_source_rgba(c[0], c[1], c[2], c[3]);
+}
+
+function drawDashedHorizontal(y: number, x1: number, x2: number, dash: number, gap: number) {
+    var x = x1;
+    while (x < x2) {
+        var xEnd = Math.min(x + dash, x2);
+        mgraphics.move_to(x, y);
+        mgraphics.line_to(xEnd, y);
+        mgraphics.stroke();
+        x += dash + gap;
+    }
+}
+
+function fmt(n: number, digits: number) {
+    var f = Math.pow(10, digits || 2);
+    return String(Math.round(n * f) / f);
+}
+
+function chooseXTickStep(gridBeats: number, xSpan: number) {
+    var targetTicks = 8;
+    var raw = xSpan / targetTicks;
+    var base = gridBeats;
+
+    if (raw <= base) return base;
+    if (raw <= base * 2) return base * 2;
+    if (raw <= base * 4) return base * 4;
+    if (raw <= base * 8) return base * 8;
+    if (raw <= base * 16) return base * 16;
+    return base * 32;
+}
+
+function paint() {
+    var w = box.rect[2] - box.rect[0];
+    var h = box.rect[3] - box.rect[1];
+
+    setColor(COLORS.bg);
+    mgraphics.rectangle(0, 0, w, h);
+    mgraphics.fill();
+
+    setColor(COLORS.panelBorder);
+    mgraphics.set_line_width(1);
+    mgraphics.rectangle(0.5, 0.5, w - 1, h - 1);
+    mgraphics.stroke();
+
+    if (!graph || !graph.points || graph.points.length === 0) {
+        setColor(COLORS.text);
+        mgraphics.move_to(12, 22);
+        mgraphics.show_text("No analysis");
+        return;
     }
 
-    export function clear(): void {
-        graph = null;
-        mgraphics.redraw();
+    var points = graph.points;
+    var tol = Math.max(Math.abs(graph.toleranceBeats), 0.0001);
+    var maxAbs = Math.max(Math.abs(graph.yMinBeats), Math.abs(graph.yMaxBeats), tol);
+
+    // tighter padding: more room for the plot
+    var leftPad = 52;
+    var rightPad = 12;
+    var topPad = 10;
+    var bottomPad = 26;
+
+    var plotW = w - leftPad - rightPad;
+    var plotH = h - topPad - bottomPad;
+
+    var xMin = graph.xMin;
+    var xMax = graph.xMax;
+    var xSpan = Math.max(1, xMax - xMin);
+
+    var zeroY = topPad + plotH / 2;
+    var axisX = leftPad;
+
+    var LOG_K = 50;
+
+    function log10(x: number) {
+        return Math.log(x) / Math.LN10;
     }
 
-    export function graph_json(): void {
-        const s = arrayfromargs.apply(null, arguments as any).join(" ");
-        try {
-            const obj = JSON.parse(s);
-            graph = obj.payload ? obj.payload : obj;
-            mgraphics.redraw();
-        } catch (e: any) {
-            post("graph_json parse failed: " + String(e) + "\n");
-        }
+    function logTransform(v: number) {
+        var sign = v < 0 ? -1 : 1;
+        return sign * log10(1 + LOG_K * Math.abs(v));
     }
 
-    export function paint(): void {
-        const w = box.rect[2] - box.rect[0];
-        const h = box.rect[3] - box.rect[1];
+    var maxAbsLog = Math.max(
+        Math.abs(logTransform(maxAbs)),
+        Math.abs(logTransform(tol))
+    );
 
-        mgraphics.set_source_rgba(0.1, 0.1, 0.1, 1);
-        mgraphics.rectangle(0, 0, w, h);
-        mgraphics.fill();
+    function yToPix(v: number) {
+        var lv = logTransform(v);
+        return zeroY - (lv / maxAbsLog) * (plotH / 2);
+    }
 
-        if (!graph || !graph.points || graph.points.length === 0) {
-            mgraphics.set_source_rgba(0.9, 0.9, 0.9, 1);
-            mgraphics.move_to(10, 20);
-            mgraphics.show_text("No analysis");
-            return;
-        }
+    function xToPix(v: number) {
+        return leftPad + ((v - xMin) / xSpan) * plotW;
+    }
 
-        const points = graph.points;
-        const tol = Math.max(Math.abs(graph.toleranceBeats), 0.0001);
-        const maxAbs = Math.max(
-            Math.abs(graph.yMinBeats),
-            Math.abs(graph.yMaxBeats),
-            tol
-        );
+    // tolerance fill band
+    var yTolTop = yToPix(tol);
+    var yTolBottom = yToPix(-tol);
+    setColor(COLORS.toleranceFill);
+    mgraphics.rectangle(leftPad, yTolTop, plotW, yTolBottom - yTolTop);
+    mgraphics.fill();
 
-        const leftPad = 10;
-        const rightPad = 10;
-        const topPad = 20;
-        const bottomPad = 20;
+    // denser horizontal guides near tolerance
+    var gridVals = [];
+    gridVals.push(-maxAbs);
 
-        const plotW = w - leftPad - rightPad;
-        const plotH = h - topPad - bottomPad;
-        const zeroY = topPad + plotH / 2;
+    var innerSteps = 4;
+    for (var i = -innerSteps; i <= innerSteps; i++) {
+        gridVals.push((i / innerSteps) * tol);
+    }
 
-        function yToPix(v: number): number {
-            return zeroY - (v / maxAbs) * (plotH / 2);
-        }
+    gridVals.push(maxAbs);
 
-        mgraphics.set_source_rgba(0.25, 0.25, 0.25, 1);
-        const yTolTop = yToPix(tol);
-        const yTolBottom = yToPix(-tol);
-        mgraphics.rectangle(leftPad, yTolTop, plotW, yTolBottom - yTolTop);
-        mgraphics.fill();
+    setColor(COLORS.grid);
+    mgraphics.set_line_width(1);
+    for (var gi = 0; gi < gridVals.length; gi++) {
+        var gy = yToPix(gridVals[gi]);
+        mgraphics.move_to(leftPad, gy);
+        mgraphics.line_to(leftPad + plotW, gy);
+        mgraphics.stroke();
+    }
 
-        mgraphics.set_source_rgba(0.9, 0.9, 0.9, 1);
-        mgraphics.set_line_width(1);
-        mgraphics.move_to(leftPad, zeroY);
-        mgraphics.line_to(leftPad + plotW, zeroY);
+    // x grid/ticks
+    var tickStep = chooseXTickStep(graph.gridBeats, xSpan);
+    var firstTick = Math.ceil(xMin / tickStep) * tickStep;
+    var xTickLabelY = topPad + plotH + 14;
+
+    for (var xb = firstTick; xb <= xMax + 0.0001; xb += tickStep) {
+        var xp = xToPix(xb);
+        setColor(COLORS.grid);
+        mgraphics.move_to(xp, topPad);
+        mgraphics.line_to(xp, topPad + plotH);
         mgraphics.stroke();
 
-        const n = points.length;
-        const step = plotW / Math.max(n, 1);
-        const barW = Math.max(1, step * 0.7);
-
-        for (let i = 0; i < n; i++) {
-            const p = points[i];
-            const x = leftPad + i * step + (step - barW) / 2;
-            const y = yToPix(p.yBeats);
-
-            if (p.ok) {
-                mgraphics.set_source_rgba(0.3, 0.8, 0.4, 1);
-            } else {
-                mgraphics.set_source_rgba(0.8, 0.3, 0.3, 0.8);
-            }
-
-            const rectY = Math.min(y, zeroY);
-            const rectH = Math.max(1, Math.abs(y - zeroY));
-            mgraphics.rectangle(x, rectY, barW, rectH);
-            mgraphics.fill();
-        }
-
-        mgraphics.set_source_rgba(0.95, 0.95, 0.95, 1);
-        mgraphics.move_to(10, 14);
-        mgraphics.show_text(
-            graph.clipName +
-            " | tol=" + graph.toleranceBeats +
-            " beats | accepted=" + graph.accepted +
-            "/" + (graph.accepted + graph.rejected)
-        );
+        setColor(COLORS.mutedText);
+        mgraphics.move_to(xp - 8, xTickLabelY);
+        mgraphics.show_text(String(Math.round(xb)));
     }
-}
 
-function loadbang(): void {
-    DriftGraphUI.loadbang();
-}
+    // axes
+    setColor(COLORS.axis);
+    mgraphics.set_line_width(1.25);
 
-function paint(): void {
-    DriftGraphUI.paint();
-}
+    // y-axis
+    mgraphics.move_to(axisX, topPad);
+    mgraphics.line_to(axisX, topPad + plotH);
+    mgraphics.stroke();
 
-function graph_json(): void {
-    DriftGraphUI.graph_json.apply(null, arguments as any);
-}
+    // x-axis
+    mgraphics.move_to(leftPad, zeroY);
+    mgraphics.line_to(leftPad + plotW, zeroY);
+    mgraphics.stroke();
 
-function clear(): void {
-    DriftGraphUI.clear();
+    // tolerance dashed lines
+    setColor(COLORS.tolerance);
+    mgraphics.set_line_width(1);
+    drawDashedHorizontal(yTolTop, leftPad, leftPad + plotW, 6, 4);
+    drawDashedHorizontal(yTolBottom, leftPad, leftPad + plotW, 6, 4);
+
+    // zero line highlight
+    setColor(COLORS.zero);
+    mgraphics.set_line_width(1.2);
+    mgraphics.move_to(leftPad, zeroY);
+    mgraphics.line_to(leftPad + plotW, zeroY);
+    mgraphics.stroke();
+
+    // bars
+    var n = points.length;
+    var stepPx = plotW / Math.max(n, 1);
+    var barW = Math.max(2, stepPx * 0.65);
+
+    for (var bi = 0; bi < n; bi++) {
+        var p = points[bi];
+        var x = xToPix(p.xBeat) - barW / 2;
+        var y = yToPix(p.yBeats);
+
+        setColor(p.ok ? COLORS.ok : COLORS.reject);
+
+        var rectY = Math.min(y, zeroY);
+        var rectH = Math.max(2, Math.abs(y - zeroY));
+        mgraphics.rectangle(x, rectY, barW, rectH);
+        mgraphics.fill();
+    }
+
+    // y-axis labels
+    setColor(COLORS.mutedText);
+    mgraphics.move_to(8, yToPix(maxAbs) + 4);
+    mgraphics.show_text("+" + fmt(maxAbs, 3));
+
+    mgraphics.move_to(8, yToPix(tol) + 4);
+    mgraphics.show_text("+" + fmt(tol, 3));
+
+    mgraphics.move_to(16, zeroY + 4);
+    mgraphics.show_text("0");
+
+    mgraphics.move_to(8, yToPix(-tol) + 4);
+    mgraphics.show_text("-" + fmt(tol, 3));
+
+    mgraphics.move_to(8, yToPix(-maxAbs) + 4);
+    mgraphics.show_text("-" + fmt(maxAbs, 3));
+
+    // bottom-left combined axis labels
+    setColor(COLORS.mutedText);
+
+    // align with tick baseline
+    var labelY = xTickLabelY;
+
+    // compact, readable format
+    mgraphics.move_to(leftPad - 44, labelY);
+    mgraphics.show_text("drift");
+
+    mgraphics.move_to(leftPad - 8, labelY);
+    mgraphics.show_text("/");
+
+    mgraphics.move_to(leftPad + 4, labelY);
+    mgraphics.show_text("beats");
 }
