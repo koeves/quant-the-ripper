@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build:quant": "tsc -p tsconfig.quant.json",
+    "build:graph": "tsc -p tsconfig.graph.json",
+    "build": "npm run build:quant && npm run build:graph"
   },
   "keywords": [],
   "author": "",

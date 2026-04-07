@@ -3,13 +3,13 @@
         "target": "ES2019",
         "strict": true,
         "noEmitOnError": false,
-        "outFile": "max/quant.js",
+        "outFile": "plugin/graph.js",
         "rootDir": "src",
         "module": "none",
         "removeComments": false,
         "ignoreDeprecations": "6.0"
     },
     "include": [
-        "src/**/*.ts"
+        "src/graph.ts"
     ]
 }
