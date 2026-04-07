@@ -1,18 +1,3 @@
-/* 
-  Max for Live / Ableton Live - drift analyze preview
-
-  Usage:
-    init
-    analyze 4 0.5 0 128
-
-  Meaning:
-    analyze <gridBeats> <toleranceBeats> <startBeat> <maxPoints>
-
-  outlet 0:
-    "analysis_json" <json-string>
-    "graph_json"    <json-string>
-*/
-
 declare function post(...args: any[]): void;
 declare function error(...args: any[]): void;
 declare function outlet(index: number, ...args: any[]): void;
@@ -66,6 +51,7 @@ namespace Model {
         toleranceBeats: number;
         clipStartBeat: number;
         clipEndBeat: number;
+        startTime: number;
         points: AnalysisPoint[];
         summary: {
             totalTargets: number;
@@ -110,6 +96,8 @@ namespace Model {
         initialized: boolean;
         lastAnalysis: AnalysisResult | null;
         lastGraph: GraphPayload | null;
+        lastAfterAnalysis: AnalysisResult | null;
+        lastAfterGraph: GraphPayload | null;
         lastClipId: string;
     }
 }
@@ -119,6 +107,8 @@ namespace State {
         initialized: false,
         lastAnalysis: null,
         lastGraph: null,
+        lastAfterAnalysis: null,
+        lastAfterGraph: null,
         lastClipId: "",
     };
 }
@@ -203,9 +193,6 @@ namespace Live {
     export function getWarpMarkersFromClip(clip: LiveAPI): Model.WarpMarker[] | null {
         try {
             const raw = clip.get("warp_markers");
-            post("RAW warp markers:\n");
-            post(JSON.stringify(raw, null, 2) + "\n");
-
             let parsed: any = null;
 
             if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === "string") {
@@ -298,6 +285,88 @@ namespace Live {
 
         return { marker: best, distance: bestDist };
     }
+
+    export function parentTrackPath(path: string): string | null {
+        const parts = path.split(" ");
+        const idx = parts.indexOf("tracks");
+        if (idx === -1 || idx + 1 >= parts.length) return null;
+        return "live_set tracks " + parts[idx + 1];
+    }
+
+    export function getOrCreateComparisonTrack(trackName: string): LiveAPI | null {
+        const song = new LiveAPI(undefined, "live_set");
+        const trackCountBefore = song.getcount("tracks");
+
+        for (let i = 0; i < trackCountBefore; i++) {
+            const t = new LiveAPI(undefined, "live_set tracks " + i);
+            const name = Utils.toPropertyString(t.get("name"));
+            if (name === trackName) {
+                return t;
+            }
+        }
+
+        post("Creating comparison track: " + trackName + "\n");
+        song.call("create_audio_track", -1);
+
+        const trackCountAfter = song.getcount("tracks");
+        if (trackCountAfter <= 0) return null;
+
+        const newTrack = new LiveAPI(undefined, "live_set tracks " + (trackCountAfter - 1));
+        newTrack.set("name", trackName);
+        return newTrack;
+    }
+
+    export function findArrangementClipByStartTime(trackPath: string, startBeat: number): LiveAPI | null {
+        const track = new LiveAPI(undefined, trackPath);
+        const count = track.getcount("arrangement_clips");
+
+        for (let i = 0; i < count; i++) {
+            const c = new LiveAPI(undefined, trackPath + " arrangement_clips " + i);
+            const st = Utils.toNumber(Utils.lastValue(c.get("start_time")));
+            if (Math.abs(st - startBeat) < 1e-4) {
+                return c;
+            }
+        }
+
+        return null;
+    }
+
+    export function duplicateOriginalClipToComparisonTrack(
+        originalClip: LiveAPI,
+        destinationTrack: LiveAPI,
+        destinationTime: number
+    ): LiveAPI | null {
+        try {
+            destinationTrack.call("duplicate_clip_to_arrangement", "id " + Number(originalClip.id), destinationTime);
+        } catch (e: any) {
+            post("duplicate_clip_to_arrangement failed: " + String(e) + "\n");
+            return null;
+        }
+
+        return findArrangementClipByStartTime(destinationTrack.path, destinationTime);
+    }
+
+    export function moveWarpMarkerByBeatDistance(
+        clip: LiveAPI,
+        beatTime: number,
+        beatTimeDistance: number
+    ): void {
+        try {
+            clip.call("move_warp_marker", beatTime, beatTimeDistance);
+        } catch (e: any) {
+            post(
+                "Warning: move_warp_marker failed at beatTime=" + beatTime +
+                ", beatTimeDistance=" + beatTimeDistance +
+                ": " + String(e) + "\n"
+            );
+        }
+    }
+
+    export function selectedClipMatchesLastAnalysis(): boolean {
+        const clip = clipInfo();
+        if (!clip) return false;
+        return String(clip.id) === State.state.lastClipId;
+    }
 }
 
 namespace Quant {
@@ -325,10 +394,172 @@ namespace Quant {
         post(JSON.stringify(State.state.lastGraph, null, 2) + "\n");
     }
 
+    function buildAnalysisForClip(
+        clip: LiveAPI,
+        gridBeats: number,
+        toleranceBeats: number,
+        startBeat: number
+    ): { analysis: Model.AnalysisResult; graph: Model.GraphPayload } | null {
+        const isAudio = Utils.toNumber(Utils.lastValue(clip.get("is_audio_clip")));
+        const isArrangement = Utils.toNumber(Utils.lastValue(clip.get("is_arrangement_clip")));
+
+        if (isAudio !== 1) {
+            error("Selected clip is not an audio clip.\n");
+            return null;
+        }
+
+        if (isArrangement !== 1) {
+            error("Selected clip is not an Arrangement clip.\n");
+            return null;
+        }
+
+        const filePath = Utils.toPropertyString(clip.get("file_path"));
+        if (!filePath) {
+            error("Could not read file_path from clip.\n");
+            return null;
+        }
+
+        const clipName = Utils.toPropertyString(clip.get("name"));
+        const tempo = Live.getSongTempo();
+        const arrangementStart = Utils.toNumber(Utils.lastValue(clip.get("start_time")));
+        const clipStartBeat = Utils.toNumber(Utils.lastValue(clip.get("start_marker")));
+        const clipEndBeat = Utils.toNumber(Utils.lastValue(clip.get("end_marker")));
+
+        const rawMarkers = Live.getWarpMarkersFromClip(clip);
+        if (!rawMarkers || rawMarkers.length < 2) {
+            error("Could not parse source warp markers.\n");
+            return null;
+        }
+
+        const sourceMarkers = Live.dedupeWarpMarkers(rawMarkers);
+        post("Parsed " + sourceMarkers.length + " unique source warp markers\n");
+
+        const firstBeat = Math.max(startBeat, clipStartBeat);
+        const usedSampleTimes: { [key: string]: boolean } = {};
+        const points: Model.AnalysisPoint[] = [];
+
+        let idx = 0;
+        for (let targetBeat = firstBeat; targetBeat <= clipEndBeat + 1e-9; targetBeat += gridBeats) {
+            const nearest = Live.findNearestUnusedWarpMarkerAroundBeat(
+                targetBeat,
+                sourceMarkers,
+                usedSampleTimes,
+                toleranceBeats
+            );
+
+            let accepted = false;
+            let markerBeat = targetBeat;
+            let markerSampleTime = -1;
+            let reason = "no_marker";
+            let driftBeats = 0;
+
+            if (!nearest.marker) {
+                accepted = false;
+                reason = "no_marker";
+                driftBeats = 0;
+            } else {
+                markerBeat = nearest.marker.beat_time;
+                markerSampleTime = nearest.marker.sample_time;
+                driftBeats = markerBeat - targetBeat;
+
+                if (nearest.distance <= toleranceBeats) {
+                    accepted = true;
+                    reason = "accepted";
+                    const sampleKey = String(Utils.round(nearest.marker.sample_time, 6));
+                    usedSampleTimes[sampleKey] = true;
+                } else {
+                    accepted = false;
+                    reason = "outside_tolerance";
+                }
+            }
+
+            const driftMs = Live.beatsToMs(driftBeats, tempo);
+
+            points.push({
+                index: idx,
+                targetBeat: Utils.round(targetBeat, 6),
+                markerBeat: Utils.round(markerBeat, 6),
+                markerSampleTime: Utils.round(markerSampleTime, 6),
+                driftBeats: Utils.round(driftBeats, 6),
+                driftMs: Utils.round(driftMs, 3),
+                absDriftBeats: Utils.round(Utils.abs(driftBeats), 6),
+                accepted: accepted,
+                reason: reason
+            });
+
+            idx++;
+        }
+
+        const acceptedPoints = points.filter(function (p) { return p.accepted; });
+        const allDriftBeats = points.map(function (p) { return p.driftBeats; });
+        const allDriftMs = points.map(function (p) { return p.driftMs; });
+        const absDriftBeats = points.map(function (p) { return p.absDriftBeats; });
+        const absDriftMs = points.map(function (p) { return Utils.abs(p.driftMs); });
+
+        const analysis: Model.AnalysisResult = {
+            clipName: clipName,
+            clipPath: clip.path,
+            filePath: filePath,
+            tempo: Utils.round(tempo, 6),
+            gridBeats: gridBeats,
+            toleranceBeats: toleranceBeats,
+            clipStartBeat: Utils.round(clipStartBeat, 6),
+            clipEndBeat: Utils.round(clipEndBeat, 6),
+            startTime: Utils.round(arrangementStart, 6),
+            points: points,
+            summary: {
+                totalTargets: points.length,
+                accepted: acceptedPoints.length,
+                rejected: points.length - acceptedPoints.length,
+                uniqueMarkersUsed: acceptedPoints.length,
+                minDriftBeats: Utils.round(Utils.min(allDriftBeats), 6),
+                maxDriftBeats: Utils.round(Utils.max(allDriftBeats), 6),
+                meanAbsDriftBeats: Utils.round(Utils.mean(absDriftBeats), 6),
+                minDriftMs: Utils.round(Utils.min(allDriftMs), 3),
+                maxDriftMs: Utils.round(Utils.max(allDriftMs), 3),
+                meanAbsDriftMs: Utils.round(Utils.mean(absDriftMs), 3)
+            }
+        };
+
+        const graphPoints: Model.GraphPoint[] = points.map(function (p) {
+            return {
+                i: p.index,
+                xBeat: p.targetBeat,
+                yBeats: p.driftBeats,
+                yMs: p.driftMs,
+                ok: p.accepted
+            };
+        });
+
+        const toleranceMs = Live.beatsToMs(toleranceBeats, tempo);
+
+        const graph: Model.GraphPayload = {
+            clipName: clipName,
+            tempo: Utils.round(tempo, 6),
+            gridBeats: gridBeats,
+            toleranceBeats: Utils.round(toleranceBeats, 6),
+            toleranceMs: Utils.round(toleranceMs, 3),
+            xMin: graphPoints.length ? graphPoints[0].xBeat : 0,
+            xMax: graphPoints.length ? graphPoints[graphPoints.length - 1].xBeat : 0,
+            yMinBeats: Utils.round(Utils.min(graphPoints.map(function (p) { return p.yBeats; })), 6),
+            yMaxBeats: Utils.round(Utils.max(graphPoints.map(function (p) { return p.yBeats; })), 6),
+            yMinMs: Utils.round(Utils.min(graphPoints.map(function (p) { return p.yMs; })), 3),
+            yMaxMs: Utils.round(Utils.max(graphPoints.map(function (p) { return p.yMs; })), 3),
+            accepted: acceptedPoints.length,
+            rejected: points.length - acceptedPoints.length,
+            points: graphPoints
+        };
+
+        return {
+            analysis: analysis,
+            graph: graph
+        };
+    }
+
     export function analyze(
         gridBeats: number = 4,
         toleranceBeats: number = 0.5,
-        startBeat: number = 0,
+        startBeat: number = 0
     ): void {
         try {
             if (!State.state.initialized) {
@@ -342,31 +573,7 @@ namespace Quant {
                 return;
             }
 
-            const isAudio = Utils.toNumber(Utils.lastValue(clip.get("is_audio_clip")));
-            const isArrangement = Utils.toNumber(Utils.lastValue(clip.get("is_arrangement_clip")));
-
-            if (isAudio !== 1) {
-                error("Selected detail clip is not an audio clip.\n");
-                return;
-            }
-
-            if (isArrangement !== 1) {
-                error("Selected detail clip is not an Arrangement clip.\n");
-                return;
-            }
-
             Live.inspect(clip);
-
-            const filePath = Utils.toPropertyString(clip.get("file_path"));
-            if (!filePath) {
-                error("Could not read file_path from clip.\n");
-                return;
-            }
-
-            const clipName = Utils.toPropertyString(clip.get("name"));
-            const tempo = Live.getSongTempo();
-            const clipStartBeat = Utils.toNumber(Utils.lastValue(clip.get("start_marker")));
-            const clipEndBeat = Utils.toNumber(Utils.lastValue(clip.get("end_marker")));
 
             if (!(gridBeats > 0)) {
                 error("gridBeats must be > 0\n");
@@ -378,151 +585,148 @@ namespace Quant {
                 return;
             }
 
-            const rawMarkers = Live.getWarpMarkersFromClip(clip);
-            if (!rawMarkers || rawMarkers.length < 2) {
-                error("Could not parse source warp markers.\n");
-                return;
-            }
+            const result = buildAnalysisForClip(clip, gridBeats, toleranceBeats, startBeat);
+            if (!result) return;
 
-            const sourceMarkers = Live.dedupeWarpMarkers(rawMarkers);
-            post(`Parsed ${sourceMarkers.length} unique source warp markers\n`);
-
-            if (sourceMarkers.length < 8) {
-                post("Warning: very few warp markers found. Did you add warp markers at transients in the UI?\n");
-            }
-
-            const firstBeat = Math.max(startBeat, clipStartBeat);
-            const usedSampleTimes: { [key: string]: boolean } = {};
-            const points: Model.AnalysisPoint[] = [];
-
-            let idx = 0;
-            for (let targetBeat = firstBeat; targetBeat <= clipEndBeat + 1e-9; targetBeat += gridBeats) {
-                const nearest = Live.findNearestUnusedWarpMarkerAroundBeat(
-                    targetBeat,
-                    sourceMarkers,
-                    usedSampleTimes,
-                    toleranceBeats
-                );
-
-                let accepted = false;
-                let markerBeat = targetBeat;
-                let markerSampleTime = -1;
-                let reason = "no_marker";
-                let driftBeats = 0;
-
-                if (!nearest.marker) {
-                    accepted = false;
-                    reason = "no_marker";
-                    driftBeats = 0;
-                } else {
-                    markerBeat = nearest.marker.beat_time;
-                    markerSampleTime = nearest.marker.sample_time;
-                    driftBeats = markerBeat - targetBeat;
-
-                    if (nearest.distance <= toleranceBeats) {
-                        accepted = true;
-                        reason = "accepted";
-                        const sampleKey = String(Utils.round(nearest.marker.sample_time, 6));
-                        usedSampleTimes[sampleKey] = true;
-                    } else {
-                        accepted = false;
-                        reason = "outside_tolerance";
-                    }
-                }
-
-                const driftMs = Live.beatsToMs(driftBeats, tempo);
-
-                const point: Model.AnalysisPoint = {
-                    index: idx,
-                    targetBeat: Utils.round(targetBeat, 6),
-                    markerBeat: Utils.round(markerBeat, 6),
-                    markerSampleTime: Utils.round(markerSampleTime, 6),
-                    driftBeats: Utils.round(driftBeats, 6),
-                    driftMs: Utils.round(driftMs, 3),
-                    absDriftBeats: Utils.round(Utils.abs(driftBeats), 6),
-                    accepted,
-                    reason,
-                };
-
-                points.push(point);
-
-                post(
-                    `[analyze ${idx}] targetBeat=${point.targetBeat}, markerBeat=${point.markerBeat}, ` +
-                    `driftBeats=${point.driftBeats}, driftMs=${point.driftMs}, accepted=${point.accepted}, reason=${point.reason}\n`
-                );
-            }
-
-            const acceptedPoints = points.filter((p) => p.accepted);
-            const allDriftBeats = points.map((p) => p.driftBeats);
-            const allDriftMs = points.map((p) => p.driftMs);
-            const absDriftBeats = points.map((p) => p.absDriftBeats);
-            const absDriftMs = points.map((p) => Utils.abs(p.driftMs));
-
-            const analysis: Model.AnalysisResult = {
-                clipName,
-                clipPath: clip.path,
-                filePath,
-                tempo: Utils.round(tempo, 6),
-                gridBeats,
-                toleranceBeats,
-                clipStartBeat: Utils.round(clipStartBeat, 6),
-                clipEndBeat: Utils.round(clipEndBeat, 6),
-                points,
-                summary: {
-                    totalTargets: points.length,
-                    accepted: acceptedPoints.length,
-                    rejected: points.length - acceptedPoints.length,
-                    uniqueMarkersUsed: acceptedPoints.length,
-                    minDriftBeats: Utils.round(Utils.min(allDriftBeats), 6),
-                    maxDriftBeats: Utils.round(Utils.max(allDriftBeats), 6),
-                    meanAbsDriftBeats: Utils.round(Utils.mean(absDriftBeats), 6),
-                    minDriftMs: Utils.round(Utils.min(allDriftMs), 3),
-                    maxDriftMs: Utils.round(Utils.max(allDriftMs), 3),
-                    meanAbsDriftMs: Utils.round(Utils.mean(absDriftMs), 3),
-                }
-            };
-
-            const graphPoints: Model.GraphPoint[] = points.map((p) => ({
-                i: p.index,
-                xBeat: p.targetBeat,
-                yBeats: p.driftBeats,
-                yMs: p.driftMs,
-                ok: p.accepted
-            }));
-
-            const toleranceMs = Live.beatsToMs(toleranceBeats, tempo);
-
-            const graph: Model.GraphPayload = {
-                clipName,
-                tempo: Utils.round(tempo, 6),
-                gridBeats,
-                toleranceBeats: Utils.round(toleranceBeats, 6),
-                toleranceMs: Utils.round(toleranceMs, 3),
-                xMin: graphPoints.length ? graphPoints[0].xBeat : 0,
-                xMax: graphPoints.length ? graphPoints[graphPoints.length - 1].xBeat : 0,
-                yMinBeats: Utils.round(Utils.min(graphPoints.map((p) => p.yBeats)), 6),
-                yMaxBeats: Utils.round(Utils.max(graphPoints.map((p) => p.yBeats)), 6),
-                yMinMs: Utils.round(Utils.min(graphPoints.map((p) => p.yMs)), 3),
-                yMaxMs: Utils.round(Utils.max(graphPoints.map((p) => p.yMs)), 3),
-                accepted: acceptedPoints.length,
-                rejected: points.length - acceptedPoints.length,
-                points: graphPoints
-            };
-
-            State.state.lastAnalysis = analysis;
-            State.state.lastGraph = graph;
+            State.state.lastAnalysis = result.analysis;
+            State.state.lastGraph = result.graph;
             State.state.lastClipId = String(clip.id);
 
             post(
-                `Analysis done. total=${analysis.summary.totalTargets}, ` +
-                `accepted=${analysis.summary.accepted}, rejected=${analysis.summary.rejected}, ` +
-                `meanAbsDriftBeats=${analysis.summary.meanAbsDriftBeats}, ` +
-                `meanAbsDriftMs=${analysis.summary.meanAbsDriftMs}\n`
+                "Analysis done. total=" + result.analysis.summary.totalTargets +
+                ", accepted=" + result.analysis.summary.accepted +
+                ", rejected=" + result.analysis.summary.rejected +
+                ", meanAbsDriftBeats=" + result.analysis.summary.meanAbsDriftBeats +
+                ", meanAbsDriftMs=" + result.analysis.summary.meanAbsDriftMs + "\n"
             );
 
-            outlet(0, "graph_json", JSON.stringify(graph));
+            outlet(0, "graph_json", JSON.stringify(result.graph));
         } catch (e: any) {
-            error(`analyze() failed: ${String(e)}\n`);
+            error("analyze() failed: " + String(e) + "\n");
+        }
+    }
+
+    export function apply(): void {
+        try {
+            if (!State.state.initialized) {
+                error("Device not initialized yet. Trigger init first.\n");
+                return;
+            }
+
+            if (!State.state.lastAnalysis) {
+                error("No analysis available. Run analyze first.\n");
+                return;
+            }
+
+            if (!Live.selectedClipMatchesLastAnalysis()) {
+                error("Selected clip is not the same clip that was analyzed. Re-run analyze.\n");
+                return;
+            }
+
+            const originalClip = Live.clipInfo();
+            if (!originalClip) {
+                error("No detail clip selected.\n");
+                return;
+            }
+
+            const analysis = State.state.lastAnalysis;
+            const comparisonTrackName = analysis.clipName + "_quanted";
+            const comparisonTrack = Live.getOrCreateComparisonTrack(comparisonTrackName);
+
+            if (!comparisonTrack) {
+                error("Could not create or find comparison track.\n");
+                return;
+            }
+
+            const newClip = Live.duplicateOriginalClipToComparisonTrack(
+                originalClip,
+                comparisonTrack,
+                analysis.startTime
+            );
+
+            if (!newClip) {
+                error("Could not duplicate original clip to comparison track.\n");
+                return;
+            }
+
+            const duplicatedMarkers = Live.getWarpMarkersFromClip(newClip);
+
+            if (!duplicatedMarkers) {
+                error("No warp markers on duplicated track");
+            }
+            if (duplicatedMarkers && duplicatedMarkers.length != analysis.points.length) {
+                post("Duplicated clip warp markers are not the same as original tracks: duplicated warp markers length=" + duplicatedMarkers.length + " original=" + analysis.points.length + "\n");
+            }
+
+            post("Created comparison clip at path: " + newClip.path + "\n");
+
+            let moved = 0;
+            let skippedRejected = 0;
+            let skippedNoSample = 0;
+            let skippedTinyDrift = 0;
+
+            for (let i = 0; i < analysis.points.length; i++) {
+                const p = analysis.points[i];
+
+                if (!p.accepted) {
+                    skippedRejected += 1;
+                    continue;
+                }
+
+                if (p.markerSampleTime < 0) {
+                    skippedNoSample += 1;
+                    continue;
+                }
+
+                if (Utils.abs(p.driftBeats) < 0.005) {
+                    skippedTinyDrift += 1;
+                    continue;
+                }
+
+                const beatDistance = p.targetBeat - p.markerBeat;
+
+                post(
+                    "[apply " + i + "] markerBeat=" + p.markerBeat +
+                    ", beatDistance=" + beatDistance +
+                    ", targetBeat=" + p.targetBeat + "\n"
+                );
+
+                Live.moveWarpMarkerByBeatDistance(newClip, p.markerBeat, beatDistance);
+                moved += 1;
+            }
+
+            post(
+                "Apply done on comparison clip. " +
+                "moved=" + moved +
+                ", skippedRejected=" + skippedRejected +
+                ", skippedNoSample=" + skippedNoSample +
+                ", skippedTinyDrift=" + skippedTinyDrift + "\n"
+            );
+            post("Original clip was not modified.\n");
+
+            const afterResult = buildAnalysisForClip(
+                newClip,
+                analysis.gridBeats,
+                analysis.toleranceBeats,
+                analysis.clipStartBeat
+            );
+
+            if (afterResult) {
+                State.state.lastAfterAnalysis = afterResult.analysis;
+                State.state.lastAfterGraph = afterResult.graph;
+
+                post(
+                    "Post-warp analysis done. total=" + afterResult.analysis.summary.totalTargets +
+                    ", accepted=" + afterResult.analysis.summary.accepted +
+                    ", rejected=" + afterResult.analysis.summary.rejected +
+                    ", meanAbsDriftBeats=" + afterResult.analysis.summary.meanAbsDriftBeats +
+                    ", meanAbsDriftMs=" + afterResult.analysis.summary.meanAbsDriftMs + "\n"
+                );
+
+                outlet(0, "graph_after_json", JSON.stringify(afterResult.graph));
+            }
+        } catch (e: any) {
+            error("apply() failed: " + String(e) + "\n");
         }
     }
 }
@@ -541,6 +745,10 @@ function analyze(
     startBeat?: number,
 ): void {
     Quant.analyze(gridBeats, toleranceBeats, startBeat);
+}
+
+function apply(): void {
+    Quant.apply();
 }
 
 function clear_analysis(): void {

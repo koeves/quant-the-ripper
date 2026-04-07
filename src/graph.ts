@@ -141,11 +141,11 @@ function paint() {
     var tol = Math.max(Math.abs(graph.toleranceBeats), 0.0001);
     var maxAbs = Math.max(Math.abs(graph.yMinBeats), Math.abs(graph.yMaxBeats), tol);
 
-    // tighter padding: more room for the plot
-    var leftPad = 52;
-    var rightPad = 12;
-    var topPad = 10;
-    var bottomPad = 26;
+    // Smaller plot area
+    var leftPad = 70;
+    var rightPad = 10;
+    var topPad = 18;
+    var bottomPad = 46;
 
     var plotW = w - leftPad - rightPad;
     var plotH = h - topPad - bottomPad;
@@ -157,25 +157,13 @@ function paint() {
     var zeroY = topPad + plotH / 2;
     var axisX = leftPad;
 
-    var LOG_K = 50;
-
-    function log10(x: number) {
-        return Math.log(x) / Math.LN10;
-    }
-
-    function logTransform(v: number) {
-        var sign = v < 0 ? -1 : 1;
-        return sign * log10(1 + LOG_K * Math.abs(v));
-    }
-
-    var maxAbsLog = Math.max(
-        Math.abs(logTransform(maxAbs)),
-        Math.abs(logTransform(tol))
+    var maxAbs = Math.max(
+        Math.abs(maxAbs),
+        Math.abs(tol)
     );
 
     function yToPix(v: number) {
-        var lv = logTransform(v);
-        return zeroY - (lv / maxAbsLog) * (plotH / 2);
+        return zeroY - (v / maxAbs) * (plotH / 2);
     }
 
     function xToPix(v: number) {
@@ -212,7 +200,7 @@ function paint() {
     // x grid/ticks
     var tickStep = chooseXTickStep(graph.gridBeats, xSpan);
     var firstTick = Math.ceil(xMin / tickStep) * tickStep;
-    var xTickLabelY = topPad + plotH + 14;
+    var xTickLabelY = topPad + plotH + 16;
 
     for (var xb = firstTick; xb <= xMax + 0.0001; xb += tickStep) {
         var xp = xToPix(xb);
@@ -273,34 +261,38 @@ function paint() {
 
     // y-axis labels
     setColor(COLORS.mutedText);
-    mgraphics.move_to(8, yToPix(maxAbs) + 4);
-    mgraphics.show_text("+" + fmt(maxAbs, 3));
 
-    mgraphics.move_to(8, yToPix(tol) + 4);
-    mgraphics.show_text("+" + fmt(tol, 3));
+    // y-axis labels shifted right so they sit to the right of "drift"
+    var yLabelX = 34;
 
-    mgraphics.move_to(16, zeroY + 4);
+    // y-axis labels
+    mgraphics.move_to(yLabelX, yToPix(maxAbs) + 4);
+    mgraphics.show_text("+" + fmt(maxAbs, 2));
+
+    mgraphics.move_to(yLabelX, yToPix(tol) + 4);
+    mgraphics.show_text("+" + fmt(tol, 2));
+
+    mgraphics.move_to(yLabelX + 14, zeroY + 4);
     mgraphics.show_text("0");
 
-    mgraphics.move_to(8, yToPix(-tol) + 4);
-    mgraphics.show_text("-" + fmt(tol, 3));
+    mgraphics.move_to(yLabelX, yToPix(-tol) + 4);
+    mgraphics.show_text("-" + fmt(tol, 2));
 
-    mgraphics.move_to(8, yToPix(-maxAbs) + 4);
-    mgraphics.show_text("-" + fmt(maxAbs, 3));
+    mgraphics.move_to(yLabelX, yToPix(-maxAbs) + 4);
+    mgraphics.show_text("-" + fmt(maxAbs, 2));
 
-    // bottom-left combined axis labels
-    setColor(COLORS.mutedText);
-
-    // align with tick baseline
-    var labelY = xTickLabelY;
-
-    // compact, readable format
-    mgraphics.move_to(leftPad - 44, labelY);
+    // "drift" vertically centered, left of y ticks
+    var driftY = topPad + plotH / 2 + 4;
+    mgraphics.move_to(8, driftY);
     mgraphics.show_text("drift");
 
-    mgraphics.move_to(leftPad - 8, labelY);
-    mgraphics.show_text("/");
+    // "beats" centered below x ticks
+    var beatsText = "beats";
+    var approxCharW = 6.2;
+    var beatsW = beatsText.length * approxCharW;
+    var beatsX = leftPad + (plotW - beatsW) / 2;
+    var beatsY = h - 10;
 
-    mgraphics.move_to(leftPad + 4, labelY);
-    mgraphics.show_text("beats");
+    mgraphics.move_to(beatsX, beatsY);
+    mgraphics.show_text(beatsText);
 }
