@@ -65,11 +65,14 @@ function clear() {
 function graph_json() {
     try {
         var args = arrayfromargs(arguments);
+        post("graph: got " + JSON.stringify(args));
         var s = "";
         for (var i = 0; i < args.length; i++) {
             if (i > 0) s += " ";
             s += String(args[i]);
         }
+
+        post("graph: s " + JSON.stringify(s));
 
         graph = JSON.parse(s);
 

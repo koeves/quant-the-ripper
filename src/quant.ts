@@ -30,6 +30,7 @@ namespace Model {
         sample_time: number;
     }
 
+    // Still keeps the same shape so the graph logic stays unchanged.
     export interface AnalysisPoint {
         index: number;
         targetBeat: number;
@@ -134,7 +135,7 @@ namespace Utils {
         return String(v);
     }
 
-    export function round(n: number, digits: number = 6): number {
+    export function round(n: number, digits: number = 7): number {
         const f = Math.pow(10, digits);
         return Math.round(n * f) / f;
     }
@@ -167,6 +168,10 @@ namespace Utils {
     export function abs(n: number): number {
         return n < 0 ? -n : n;
     }
+
+    export function sampleKey(sampleTime: number): string {
+        return String(round(sampleTime, 7));
+    }
 }
 
 namespace Live {
@@ -193,21 +198,15 @@ namespace Live {
     export function getWarpMarkersFromClip(clip: LiveAPI): Model.WarpMarker[] | null {
         try {
             const raw = clip.get("warp_markers");
-            let parsed: any = null;
-
-            // post(`warp markers: ${JSON.stringify(raw)}`)
-
-            if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === "string") {
-                parsed = JSON.parse(raw[0]);
-            } else if (typeof raw === "string") {
-                parsed = JSON.parse(raw);
-            } else {
-                return null;
-            }
+            let parsed = JSON.parse(raw);
 
             if (!parsed || !Array.isArray(parsed.warp_markers)) {
+                error(`got invalid warp markers: ${JSON.stringify(parsed)}`);
                 return null;
             }
+
+            // post(`parsed: ${JSON.stringify(parsed)}`);
+            post(`parsed ${parsed.warp_markers.length} warp markers from clip ${clip.id}`);
 
             const out: Model.WarpMarker[] = [];
             for (let i = 0; i < parsed.warp_markers.length; i++) {
@@ -223,7 +222,7 @@ namespace Live {
             out.sort((a: Model.WarpMarker, b: Model.WarpMarker) => a.beat_time - b.beat_time);
             return out.length ? out : null;
         } catch (e: any) {
-            post(`getWarpMarkersFromClip failed: ${String(e)}\n`);
+            post("getWarpMarkersFromClip failed: " + String(e) + "\n");
             return null;
         }
     }
@@ -234,7 +233,7 @@ namespace Live {
 
         for (let i = 0; i < markers.length; i++) {
             const m = markers[i];
-            const key = `${Utils.round(m.sample_time, 6)}|${Utils.round(m.beat_time, 6)}`;
+            const key = String(Utils.round(m.sample_time, 7)) + "|" + String(Utils.round(m.beat_time, 7));
             if (!seen[key]) {
                 seen[key] = true;
                 out.push(m);
@@ -263,15 +262,14 @@ namespace Live {
     export function findNearestUnusedWarpMarkerAroundBeat(
         targetBeat: number,
         markers: Model.WarpMarker[],
-        usedSampleTimes: { [key: string]: boolean },
-        toleranceBeats: number
+        usedSampleTimes: { [key: string]: boolean }
     ): { marker: Model.WarpMarker | null; distance: number } {
         let best: Model.WarpMarker | null = null;
         let bestDist = Number.POSITIVE_INFINITY;
 
         for (let i = 0; i < markers.length; i++) {
             const wm = markers[i];
-            const sampleKey = String(Utils.round(wm.sample_time, 6));
+            const sampleKey = Utils.sampleKey(wm.sample_time);
             if (usedSampleTimes[sampleKey]) continue;
 
             const d = Utils.abs(wm.beat_time - targetBeat);
@@ -286,13 +284,6 @@ namespace Live {
         }
 
         return { marker: best, distance: bestDist };
-    }
-
-    export function parentTrackPath(path: string): string | null {
-        const parts = path.split(" ");
-        const idx = parts.indexOf("tracks");
-        if (idx === -1 || idx + 1 >= parts.length) return null;
-        return "live_set tracks " + parts[idx + 1];
     }
 
     export function getOrCreateComparisonTrack(trackName: string): LiveAPI | null {
@@ -337,15 +328,12 @@ namespace Live {
         originalClip: LiveAPI,
         destinationTrack: LiveAPI,
         destinationTime: number
-    ): LiveAPI | null {
-        try {
-            destinationTrack.call("duplicate_clip_to_arrangement", "id " + Number(originalClip.id), destinationTime);
-        } catch (e: any) {
-            post("duplicate_clip_to_arrangement failed: " + String(e) + "\n");
-            return null;
-        }
-
-        return findArrangementClipByStartTime(destinationTrack.path, destinationTime);
+    ): LiveAPI {
+        destinationTrack.call("duplicate_clip_to_arrangement", "id " + Number(originalClip.id), destinationTime);
+        const clip = findArrangementClipByStartTime(destinationTrack.path, destinationTime)!;
+        const clipName = Utils.toPropertyString(clip.get("name"));
+        clip.set("name", clipName + "_quanted");
+        return clip
     }
 
     export function moveWarpMarkerByBeatDistance(
@@ -353,8 +341,12 @@ namespace Live {
         beatTime: number,
         beatTimeDistance: number
     ): number {
-        const res = JSON.stringify(clip.call("move_warp_marker", beatTime.toFixed(6), beatTimeDistance));
-        post(`move success: ${res}`);
+        const res = JSON.stringify(clip.call("move_warp_marker", beatTime.toFixed(7), beatTimeDistance.toFixed(7)));
+        post(
+            "move_warp_marker beat=" + beatTime.toFixed(7) +
+            " distance=" + beatTimeDistance.toFixed(7) +
+            " -> " + res + "\n"
+        );
         return 1;
     }
 
@@ -385,6 +377,102 @@ namespace Live {
         if (bestDist > maxDistanceSec) return null;
         return best;
     }
+
+    export function createFreshClipFromOriginalOnTrack(
+        originalClip: LiveAPI,
+        destinationTrack: LiveAPI,
+        destinationTime: number,
+        clipNameSuffix: String
+    ): LiveAPI | null {
+        try {
+            const filePath = Utils.toPropertyString(originalClip.get("file_path"));
+            if (!filePath) {
+                post("createFreshClipFromOriginalOnTrack: missing file_path\n");
+                return null;
+            }
+
+            destinationTrack.call("create_audio_clip", filePath, destinationTime);
+
+            const newClip = findArrangementClipByStartTime(destinationTrack.path, destinationTime);
+            if (!newClip) {
+                post("createFreshClipFromOriginalOnTrack: could not find created clip\n");
+                return null;
+            }
+
+            const clipName = Utils.toPropertyString(originalClip.get("name"));
+            const clipStartBeat = Utils.toNumber(Utils.lastValue(originalClip.get("start_marker")));
+            const clipEndBeat = Utils.toNumber(Utils.lastValue(originalClip.get("end_marker")));
+            const warping = Utils.toNumber(Utils.lastValue(originalClip.get("warping")));
+            const warpMode = Utils.toNumber(Utils.lastValue(originalClip.get("warp_mode")));
+
+            try { newClip.set("name", `${clipName}_${clipNameSuffix}`); } catch (e) { }
+            try { newClip.set("warping", warping); } catch (e) { }
+            try { newClip.set("warp_mode", warpMode); } catch (e) { }
+
+            // For warped audio clips these are in beats.
+            try { newClip.set("start_marker", clipStartBeat); } catch (e) { }
+            try { newClip.set("end_marker", clipEndBeat); } catch (e) { }
+
+            return newClip;
+        } catch (e: any) {
+            post("createFreshClipFromOriginalOnTrack failed: " + String(e) + "\n");
+            return null;
+        }
+    }
+
+    export function addWarpMarker(
+        clip: LiveAPI,
+        beatTime: number,
+        sampleTime: number
+    ): boolean {
+        try {
+            // Docs: add_warp_marker takes a dict with beat_time and optional sample_time
+            const markerDict = JSON.stringify({
+                beat_time: beatTime,
+                sample_time: sampleTime
+            });
+
+            clip.call("add_warp_marker", markerDict);
+
+            post(
+                "add_warp_marker beat=" + beatTime.toFixed(6) +
+                " sample=" + Utils.round(sampleTime, 6) + "\n"
+            );
+            return true;
+        } catch (e: any) {
+            post(
+                "add_warp_marker failed beat=" + beatTime.toFixed(6) +
+                " sample=" + Utils.round(sampleTime, 6) +
+                " err=" + String(e) + "\n"
+            );
+            return false;
+        }
+    }
+
+    export function reinsertAcceptedWarpMarkers(
+        clip: LiveAPI,
+        analysis: Model.AnalysisResult
+    ): { inserted: number; failed: number } {
+        let inserted = 0;
+        let failed = 0;
+
+        const accepted = analysis.points
+            .filter(function (p) {
+                return p.accepted && p.markerSampleTime >= 0;
+            })
+            .sort(function (a, b) {
+                return a.targetBeat - b.targetBeat;
+            });
+
+        for (let i = 0; i < accepted.length; i++) {
+            const p = accepted[i];
+            const ok = addWarpMarker(clip, p.markerBeat, p.markerSampleTime);
+            if (ok) inserted += 1;
+            else failed += 1;
+        }
+
+        return { inserted: inserted, failed: failed };
+    }
 }
 
 namespace Quant {
@@ -400,6 +488,8 @@ namespace Quant {
     export function clear_analysis(): void {
         State.state.lastAnalysis = null;
         State.state.lastGraph = null;
+        State.state.lastAfterAnalysis = null;
+        State.state.lastAfterGraph = null;
         State.state.lastClipId = "";
         outlet(0, "graph_json", JSON.stringify({ type: "graph_cleared" }));
     }
@@ -412,12 +502,7 @@ namespace Quant {
         post(JSON.stringify(State.state.lastGraph, null, 2) + "\n");
     }
 
-    function buildAnalysisForClip(
-        clip: LiveAPI,
-        gridBeats: number,
-        toleranceBeats: number,
-        startBeat: number
-    ): { analysis: Model.AnalysisResult; graph: Model.GraphPayload } | null {
+    function validateClipForAnalysis(clip: LiveAPI): { filePath: string } | null {
         const isAudio = Utils.toNumber(Utils.lastValue(clip.get("is_audio_clip")));
         const isArrangement = Utils.toNumber(Utils.lastValue(clip.get("is_arrangement_clip")));
 
@@ -437,6 +522,19 @@ namespace Quant {
             return null;
         }
 
+        return { filePath: filePath };
+    }
+
+    function buildAnalysisForClip(
+        clip: LiveAPI,
+        gridBeats: number,
+        toleranceBeats: number,
+        startBeat: number
+    ): { analysis: Model.AnalysisResult; graph: Model.GraphPayload } | null {
+        const validated = validateClipForAnalysis(clip);
+        if (!validated) return null;
+
+        const filePath = validated.filePath;
         const clipName = Utils.toPropertyString(clip.get("name"));
         const tempo = Live.getSongTempo();
         const arrangementStart = Utils.toNumber(Utils.lastValue(clip.get("start_time")));
@@ -461,8 +559,7 @@ namespace Quant {
             const nearest = Live.findNearestUnusedWarpMarkerAroundBeat(
                 targetBeat,
                 sourceMarkers,
-                usedSampleTimes,
-                toleranceBeats
+                usedSampleTimes
             );
 
             let accepted = false;
@@ -474,7 +571,6 @@ namespace Quant {
             if (!nearest.marker) {
                 accepted = false;
                 reason = "no_marker";
-                driftBeats = 0;
             } else {
                 markerBeat = nearest.marker.beat_time;
                 markerSampleTime = nearest.marker.sample_time;
@@ -483,8 +579,7 @@ namespace Quant {
                 if (nearest.distance <= toleranceBeats) {
                     accepted = true;
                     reason = "accepted";
-                    const sampleKey = String(Utils.round(nearest.marker.sample_time, 6));
-                    usedSampleTimes[sampleKey] = true;
+                    usedSampleTimes[Utils.sampleKey(nearest.marker.sample_time)] = true;
                 } else {
                     accepted = false;
                     reason = "outside_tolerance";
@@ -574,10 +669,74 @@ namespace Quant {
         };
     }
 
+    function snapAcceptedMarkersToTargets(
+        clip: LiveAPI,
+        analysis: Model.AnalysisResult
+    ): { moved: number; skippedRejected: number; skippedNoSample: number; skippedNoWarpPoint: number } {
+        const accepted = analysis.points
+            .filter(function (p) { return p.accepted && p.markerSampleTime > 0 })
+            .sort(function (a, b) { return a.targetBeat - b.targetBeat; });
+
+        let moved = 0;
+        let skippedRejected = analysis.points.length - accepted.length;
+        let skippedNoSample = 0;
+        let skippedNoWarpPoint = 0;
+
+        for (let i = 0; i < accepted.length; i++) {
+            const p = accepted[i];
+
+            if (p.markerSampleTime < 0) {
+                skippedNoSample += 1;
+                continue;
+            }
+
+            const markers = Live.getWarpMarkersFromClip(clip);
+            if (!markers) {
+                skippedNoWarpPoint += 1;
+                post("[snap " + i + "] could not refresh duplicate markers\n");
+                continue;
+            }
+
+            const marker = Live.findNearestMarkerBySampleTime(
+                markers,
+                p.markerSampleTime,
+                0.001
+            );
+
+            if (!marker) {
+                skippedNoWarpPoint += 1;
+                post(
+                    "[snap " + i + "] no duplicate marker near sampleTime=" +
+                    p.markerSampleTime + "\n"
+                );
+                continue;
+            }
+
+            const beatMarker = Utils.round(marker.beat_time, 7);
+            const beatDistance = Utils.round(p.targetBeat - marker.beat_time, 7);
+
+            post(
+                "[snap " + i + "] currentBeat=" + beatMarker.toFixed(7) +
+                ", targetBeat=" + p.targetBeat.toFixed(7) +
+                ", beatDistance=" + beatDistance.toFixed(7) + "\n"
+            );
+
+            Live.moveWarpMarkerByBeatDistance(clip, beatMarker, beatDistance);
+            moved += 1;
+        }
+
+        return {
+            moved: moved,
+            skippedRejected: skippedRejected,
+            skippedNoSample: skippedNoSample,
+            skippedNoWarpPoint: skippedNoWarpPoint
+        };
+    }
+
     export function analyze(
         gridBeats: number = 4,
         toleranceBeats: number = 0.5,
-        startBeat: number = 0
+        startBeat: number = 1
     ): void {
         try {
             if (!State.state.initialized) {
@@ -585,13 +744,13 @@ namespace Quant {
                 return;
             }
 
-            const clip = Live.clipInfo();
-            if (!clip) {
+            const originalClip = Live.clipInfo();
+            if (!originalClip) {
                 error("No detail clip selected.\n");
                 return;
             }
 
-            Live.inspect(clip);
+            Live.inspect(originalClip);
 
             if (!(gridBeats > 0)) {
                 error("gridBeats must be > 0\n");
@@ -603,12 +762,8 @@ namespace Quant {
                 return;
             }
 
-            const result = buildAnalysisForClip(clip, gridBeats, toleranceBeats, startBeat);
+            const result = buildAnalysisForClip(originalClip, gridBeats, toleranceBeats, startBeat);
             if (!result) return;
-
-            State.state.lastAnalysis = result.analysis;
-            State.state.lastGraph = result.graph;
-            State.state.lastClipId = String(clip.id);
 
             post(
                 "Analysis done. total=" + result.analysis.summary.totalTargets +
@@ -618,13 +773,81 @@ namespace Quant {
                 ", meanAbsDriftMs=" + result.analysis.summary.meanAbsDriftMs + "\n"
             );
 
-            outlet(0, "graph_json", JSON.stringify(result.graph));
+            const preparedTrackName = result.analysis.clipName + "_prepared";
+            const preparedTrack = Live.getOrCreateComparisonTrack(preparedTrackName);
+
+            if (!preparedTrack) {
+                error("Could not create or find prepared track.\n");
+                return;
+            }
+
+            const preparedClip = Live.createFreshClipFromOriginalOnTrack(
+                originalClip,
+                preparedTrack,
+                result.analysis.startTime,
+                "prepared"
+            );
+
+            if (!preparedClip) {
+                error("Could not create fresh prepared clip from original source file.\n");
+                return;
+            }
+
+            post("Created prepared clip at path: " + preparedClip.path + "\n");
+
+            try {
+                preparedClip.set("warping", 1);
+            } catch (e: any) {
+                post("Could not force warping on prepared clip: " + String(e) + "\n");
+            }
+
+            const insertStats = Live.reinsertAcceptedWarpMarkers(preparedClip, result.analysis);
+
+            post(
+                "Reinserted accepted warp markers. inserted=" + insertStats.inserted +
+                ", failed=" + insertStats.failed + "\n"
+            );
+
+            const preparedAnalysis = buildAnalysisForClip(
+                preparedClip,
+                gridBeats,
+                toleranceBeats,
+                startBeat
+            );
+
+            if (!preparedAnalysis) {
+                error("Failed to analyze prepared clip after reinserting warp markers.\n");
+                return;
+            }
+
+            State.state.lastAnalysis = preparedAnalysis.analysis;
+            State.state.lastGraph = preparedAnalysis.graph;
+            State.state.lastClipId = String(preparedClip.id);
+
+            post(
+                "Prepared analysis stored. total=" + preparedAnalysis.analysis.summary.totalTargets +
+                ", accepted=" + preparedAnalysis.analysis.summary.accepted +
+                ", rejected=" + preparedAnalysis.analysis.summary.rejected +
+                ", meanAbsDriftBeats=" + preparedAnalysis.analysis.summary.meanAbsDriftBeats +
+                ", meanAbsDriftMs=" + preparedAnalysis.analysis.summary.meanAbsDriftMs + "\n"
+            );
+
+            outlet(0, "graph_json", JSON.stringify(preparedAnalysis.graph));
+
+            apply(preparedClip);
         } catch (e: any) {
             error("analyze() failed: " + String(e) + "\n");
         }
     }
 
-    export function apply(): void {
+    export function markers(): void {
+        const clip = Live.clipInfo()!;
+        Live.inspect(clip);
+        const markers = Live.getWarpMarkersFromClip(clip);
+        post(JSON.stringify(markers));
+    }
+
+    export function apply(clip: LiveAPI | null): void {
         try {
             if (!State.state.initialized) {
                 error("Device not initialized yet. Trigger init first.\n");
@@ -641,11 +864,11 @@ namespace Quant {
                 return;
             }
 
-            const originalClip = Live.clipInfo();
-            if (!originalClip) {
-                error("No detail clip selected.\n");
-                return;
-            }
+            // const originalClip = Live.clipInfo();
+            // if (!originalClip) {
+            //     error("No detail clip selected.\n");
+            //     return;
+            // }
 
             const analysis = State.state.lastAnalysis;
             const comparisonTrackName = analysis.clipName + "_quanted";
@@ -657,76 +880,22 @@ namespace Quant {
             }
 
             const newClip = Live.duplicateOriginalClipToComparisonTrack(
-                originalClip,
+                clip!,
                 comparisonTrack,
                 analysis.startTime
             );
 
-            if (!newClip) {
-                error("Could not duplicate original clip to comparison track.\n");
-                return;
-            }
-
             post("Created comparison clip at path: " + newClip.path + "\n");
 
-            let moved = 0;
-            let skippedRejected = 0;
-            let skippedNoSample = 0;
-            let skippedNoWarpPoint = 0;
-
-            for (let i = 0; i < analysis.points.length; i++) {
-                const p = analysis.points[i];
-
-                if (!p.accepted) {
-                    skippedRejected += 1;
-                    continue;
-                }
-
-                if (p.markerSampleTime < 0) {
-                    skippedNoSample += 1;
-                    continue;
-                }
-
-                const markers = Live.getWarpMarkersFromClip(newClip);
-                const origMarkers = Live.getWarpMarkersFromClip(originalClip);
-
-                if (markers !== origMarkers) error("markers are different")
-
-                const marker = Live.findNearestMarkerBySampleTime(
-                    markers!,
-                    p.markerSampleTime,
-                    0.001
-                );
-
-                if (!markers) {
-                    post(
-                        "[apply " + i + "] no duplicated marker near sampleTime=" +
-                        p.markerSampleTime + "\n"
-                    );
-                    skippedNoWarpPoint++;
-                    continue;
-                }
-
-                const beatDistance = p.targetBeat - marker!.beat_time;
-
-                post(
-                    "[apply " + i + "] dupMarkerBeat=" + marker!.beat_time.toFixed(12) +
-                    ", beatDistance=" + beatDistance.toFixed(12) +
-                    ", targetBeat=" + p.targetBeat.toFixed(12) + "\n"
-                );
-
-                const move = Live.moveWarpMarkerByBeatDistance(newClip, p.markerBeat, beatDistance);
-                moved += move;
-            }
+            const snapStats = snapAcceptedMarkersToTargets(newClip, analysis);
 
             post(
-                "Apply done on comparison clip. " +
-                "moved=" + moved +
-                ", skippedRejected=" + skippedRejected +
-                ", skippedNoSample=" + skippedNoSample +
-                ", skippedNoWarpPoint=" + skippedNoWarpPoint + "\n"
+                "Snap done on comparison clip. " +
+                "moved=" + snapStats.moved +
+                ", skippedRejected=" + snapStats.skippedRejected +
+                ", skippedNoSample=" + snapStats.skippedNoSample +
+                ", skippedNoWarpPoint=" + snapStats.skippedNoWarpPoint + "\n"
             );
-            post("Original clip was not modified.\n");
 
             const afterResult = buildAnalysisForClip(
                 newClip,
@@ -740,7 +909,7 @@ namespace Quant {
                 State.state.lastAfterGraph = afterResult.graph;
 
                 post(
-                    "Post-warp analysis done. total=" + afterResult.analysis.summary.totalTargets +
+                    "Post-snap analysis done. total=" + afterResult.analysis.summary.totalTargets +
                     ", accepted=" + afterResult.analysis.summary.accepted +
                     ", rejected=" + afterResult.analysis.summary.rejected +
                     ", meanAbsDriftBeats=" + afterResult.analysis.summary.meanAbsDriftBeats +
@@ -772,7 +941,11 @@ function analyze(
 }
 
 function apply(): void {
-    Quant.apply();
+    Quant.apply(null);
+}
+
+function markers(): void {
+    Quant.markers();
 }
 
 function clear_analysis(): void {
