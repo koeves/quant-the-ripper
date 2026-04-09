@@ -336,20 +336,6 @@ namespace Live {
         return clip
     }
 
-    export function moveWarpMarkerByBeatDistance(
-        clip: LiveAPI,
-        beatTime: number,
-        beatTimeDistance: number
-    ): number {
-        const res = JSON.stringify(clip.call("move_warp_marker", beatTime.toFixed(7), beatTimeDistance.toFixed(7)));
-        post(
-            "move_warp_marker beat=" + beatTime.toFixed(7) +
-            " distance=" + beatTimeDistance.toFixed(7) +
-            " -> " + res + "\n"
-        );
-        return 1;
-    }
-
     export function selectedClipMatchesLastAnalysis(): boolean {
         const clip = clipInfo();
         if (!clip) return false;
@@ -378,100 +364,157 @@ namespace Live {
         return best;
     }
 
-    export function createFreshClipFromOriginalOnTrack(
-        originalClip: LiveAPI,
-        destinationTrack: LiveAPI,
-        destinationTime: number,
-        clipNameSuffix: String
-    ): LiveAPI | null {
-        try {
-            const filePath = Utils.toPropertyString(originalClip.get("file_path"));
-            if (!filePath) {
-                post("createFreshClipFromOriginalOnTrack: missing file_path\n");
-                return null;
-            }
+    // export function createFreshClipFromOriginalOnTrack(
+    //     originalClip: LiveAPI,
+    //     destinationTrack: LiveAPI,
+    //     destinationTime: number,
+    //     clipNameSuffix: String
+    // ): LiveAPI | null {
+    //     try {
+    //         const filePath = Utils.toPropertyString(originalClip.get("file_path"));
+    //         if (!filePath) {
+    //             post("createFreshClipFromOriginalOnTrack: missing file_path\n");
+    //             return null;
+    //         }
 
-            destinationTrack.call("create_audio_clip", filePath, destinationTime);
+    //         destinationTrack.call("create_audio_clip", filePath, destinationTime);
 
-            const newClip = findArrangementClipByStartTime(destinationTrack.path, destinationTime);
-            if (!newClip) {
-                post("createFreshClipFromOriginalOnTrack: could not find created clip\n");
-                return null;
-            }
+    //         const newClip = findArrangementClipByStartTime(destinationTrack.path, destinationTime);
+    //         if (!newClip) {
+    //             post("createFreshClipFromOriginalOnTrack: could not find created clip\n");
+    //             return null;
+    //         }
 
-            const clipName = Utils.toPropertyString(originalClip.get("name"));
-            const clipStartBeat = Utils.toNumber(Utils.lastValue(originalClip.get("start_marker")));
-            const clipEndBeat = Utils.toNumber(Utils.lastValue(originalClip.get("end_marker")));
-            const warping = Utils.toNumber(Utils.lastValue(originalClip.get("warping")));
-            const warpMode = Utils.toNumber(Utils.lastValue(originalClip.get("warp_mode")));
+    //         const clipName = Utils.toPropertyString(originalClip.get("name"));
+    //         const clipStartBeat = Utils.toNumber(Utils.lastValue(originalClip.get("start_marker")));
+    //         const clipEndBeat = Utils.toNumber(Utils.lastValue(originalClip.get("end_marker")));
+    //         const warping = Utils.toNumber(Utils.lastValue(originalClip.get("warping")));
+    //         const warpMode = Utils.toNumber(Utils.lastValue(originalClip.get("warp_mode")));
 
-            try { newClip.set("name", `${clipName}_${clipNameSuffix}`); } catch (e) { }
-            try { newClip.set("warping", warping); } catch (e) { }
-            try { newClip.set("warp_mode", warpMode); } catch (e) { }
+    //         try { newClip.set("name", `${clipName}_${clipNameSuffix}`); } catch (e) { }
+    //         try { newClip.set("warping", warping); } catch (e) { }
+    //         try { newClip.set("warp_mode", warpMode); } catch (e) { }
 
-            // For warped audio clips these are in beats.
-            try { newClip.set("start_marker", clipStartBeat); } catch (e) { }
-            try { newClip.set("end_marker", clipEndBeat); } catch (e) { }
+    //         // For warped audio clips these are in beats.
+    //         try { newClip.set("start_marker", clipStartBeat); } catch (e) { }
+    //         try { newClip.set("end_marker", clipEndBeat); } catch (e) { }
 
-            return newClip;
-        } catch (e: any) {
-            post("createFreshClipFromOriginalOnTrack failed: " + String(e) + "\n");
-            return null;
-        }
-    }
+    //         return newClip;
+    //     } catch (e: any) {
+    //         post("createFreshClipFromOriginalOnTrack failed: " + String(e) + "\n");
+    //         return null;
+    //     }
+    // }
 
-    export function addWarpMarker(
+    export function moveWarpMarker(
         clip: LiveAPI,
         beatTime: number,
-        sampleTime: number
-    ): boolean {
-        try {
-            // Docs: add_warp_marker takes a dict with beat_time and optional sample_time
-            const markerDict = JSON.stringify({
-                beat_time: beatTime,
-                sample_time: sampleTime
-            });
-
-            clip.call("add_warp_marker", markerDict);
-
-            post(
-                "add_warp_marker beat=" + beatTime.toFixed(6) +
-                " sample=" + Utils.round(sampleTime, 6) + "\n"
-            );
-            return true;
-        } catch (e: any) {
-            post(
-                "add_warp_marker failed beat=" + beatTime.toFixed(6) +
-                " sample=" + Utils.round(sampleTime, 6) +
-                " err=" + String(e) + "\n"
-            );
-            return false;
-        }
+        beatTimeDistance: number
+    ): number {
+        const res = JSON.stringify(clip.call("move_warp_marker", beatTime.toFixed(7), beatTimeDistance.toFixed(7)));
+        post(
+            "move_warp_marker beat=" + beatTime.toFixed(7) +
+            " distance=" + beatTimeDistance.toFixed(7) +
+            " -> " + res + "\n"
+        );
+        return 1;
     }
 
-    export function reinsertAcceptedWarpMarkers(
+    function removeWarpMarker(
+        clip: LiveAPI,
+        beatTime: number,
+    ): number {
+        const res = JSON.stringify(clip.call("remove_warp_marker", beatTime.toFixed(7)));
+        post(
+            "remove_warp_marker beat=" + beatTime.toFixed(7) +
+            " -> " + res + "\n"
+        );
+        return (res === "[\"id\": 0]") ? 1 : 0;
+    }
+
+    // export function addWarpMarker(
+    //     clip: LiveAPI,
+    //     beatTime: number,
+    //     sampleTime: number
+    // ): boolean {
+    //     try {
+    //         const markerDict = JSON.stringify({
+    //             beat_time: beatTime,
+    //             sample_time: sampleTime
+    //         });
+
+    //         clip.call("add_warp_marker", markerDict);
+
+    //         post(
+    //             "add_warp_marker beat=" + beatTime.toFixed(6) +
+    //             " sample=" + Utils.round(sampleTime, 6) + "\n"
+    //         );
+    //         return true;
+    //     } catch (e: any) {
+    //         post(
+    //             "add_warp_marker failed beat=" + beatTime.toFixed(6) +
+    //             " sample=" + Utils.round(sampleTime, 6) +
+    //             " err=" + String(e) + "\n"
+    //         );
+    //         return false;
+    //     }
+    // }
+
+    // export function reinsertAcceptedWarpMarkers(
+    //     clip: LiveAPI,
+    //     analysis: Model.AnalysisResult
+    // ): { inserted: number; failed: number } {
+    //     let inserted = 0;
+    //     let failed = 0;
+
+    //     const accepted = analysis.points
+    //         .filter(function (p) {
+    //             return p.accepted && p.markerSampleTime >= 0;
+    //         })
+    //         .sort(function (a, b) {
+    //             return a.targetBeat - b.targetBeat;
+    //         });
+
+    //     for (let i = 0; i < accepted.length; i++) {
+    //         const p = accepted[i];
+    //         const ok = addWarpMarker(clip, p.markerBeat, p.markerSampleTime);
+    //         if (ok) inserted += 1;
+    //         else failed += 1;
+    //     }
+
+    //     return { inserted: inserted, failed: failed };
+    // }
+
+    export function removeNonAcceptedWarpMarkers(
         clip: LiveAPI,
         analysis: Model.AnalysisResult
-    ): { inserted: number; failed: number } {
-        let inserted = 0;
+    ): { removed: number; failed: number } {
+        let removed = 0;
         let failed = 0;
 
-        const accepted = analysis.points
-            .filter(function (p) {
-                return p.accepted && p.markerSampleTime >= 0;
-            })
-            .sort(function (a, b) {
-                return a.targetBeat - b.targetBeat;
-            });
+        const nonAccepted = analysis.points
+            .filter((p) => !p.accepted)
+            .sort((a, b) => a.targetBeat - b.targetBeat);
 
-        for (let i = 0; i < accepted.length; i++) {
-            const p = accepted[i];
-            const ok = addWarpMarker(clip, p.markerBeat, p.markerSampleTime);
-            if (ok) inserted += 1;
+        post(`first nonaccepted marker: ${JSON.stringify(nonAccepted[0])}`);
+        post(`last nonaccepted marker: ${JSON.stringify(nonAccepted[nonAccepted.length - 1])}`);
+        post(`here trying to remove ${nonAccepted.length} markers`);
+
+        nonAccepted.shift();
+        nonAccepted.pop();
+
+        post(`first nonaccepted marker after shift: ${JSON.stringify(nonAccepted[0])}`);
+        post(`last nonaccepted marker after pop: ${JSON.stringify(nonAccepted[nonAccepted.length - 1])}`);
+        post(`here trying to remove ${nonAccepted.length} filtered markers`);
+
+        nonAccepted.forEach((p) => {
+            post(`removing ${JSON.stringify(p)}`);
+            const ok = removeWarpMarker(clip, p.markerBeat);
+            if (ok) removed += 1;
             else failed += 1;
-        }
+        });
 
-        return { inserted: inserted, failed: failed };
+        return { removed: removed, failed: failed };
     }
 }
 
@@ -721,7 +764,7 @@ namespace Quant {
                 ", beatDistance=" + beatDistance.toFixed(7) + "\n"
             );
 
-            Live.moveWarpMarkerByBeatDistance(clip, beatMarker, beatDistance);
+            Live.moveWarpMarker(clip, beatMarker, beatDistance);
             moved += 1;
         }
 
@@ -736,7 +779,7 @@ namespace Quant {
     export function analyze(
         gridBeats: number = 4,
         toleranceBeats: number = 0.5,
-        startBeat: number = 1
+        startBeat: number = 0
     ): void {
         try {
             if (!State.state.initialized) {
@@ -773,6 +816,8 @@ namespace Quant {
                 ", meanAbsDriftMs=" + result.analysis.summary.meanAbsDriftMs + "\n"
             );
 
+            post(`analysis: ${JSON.stringify(result.analysis)}`);
+
             const preparedTrackName = result.analysis.clipName + "_prepared";
             const preparedTrack = Live.getOrCreateComparisonTrack(preparedTrackName);
 
@@ -781,60 +826,66 @@ namespace Quant {
                 return;
             }
 
-            const preparedClip = Live.createFreshClipFromOriginalOnTrack(
+            // const preparedClip = Live.duplicateOriginalClipToComparisonTrack(
+            //     originalClip,
+            //     preparedTrack,
+            //     result.analysis.startTime,
+            //     "prepared"
+            // );
+
+            const preparedClip = Live.duplicateOriginalClipToComparisonTrack(
                 originalClip,
                 preparedTrack,
-                result.analysis.startTime,
-                "prepared"
+                result.analysis.startTime
             );
+
+            post("Created prepared clip at path: " + preparedClip.path + "\n");
 
             if (!preparedClip) {
                 error("Could not create fresh prepared clip from original source file.\n");
                 return;
             }
 
-            post("Created prepared clip at path: " + preparedClip.path + "\n");
+            // try {
+            //     preparedClip.set("warping", 1);
+            // } catch (e: any) {
+            //     post("Could not force warping on prepared clip: " + String(e) + "\n");
+            // }
 
-            try {
-                preparedClip.set("warping", 1);
-            } catch (e: any) {
-                post("Could not force warping on prepared clip: " + String(e) + "\n");
-            }
+            // const insertStats = Live.removeNonAcceptedWarpMarkers(preparedClip, result.analysis);
 
-            const insertStats = Live.reinsertAcceptedWarpMarkers(preparedClip, result.analysis);
+            // post(
+            //     "Reinserted accepted warp markers. inserted=" + insertStats.inserted +
+            //     ", failed=" + insertStats.failed + "\n"
+            // );
 
-            post(
-                "Reinserted accepted warp markers. inserted=" + insertStats.inserted +
-                ", failed=" + insertStats.failed + "\n"
-            );
+            // // const preparedAnalysis = buildAnalysisForClip(
+            // //     preparedClip,
+            // //     gridBeats,
+            // //     toleranceBeats,
+            // //     startBeat
+            // // );
 
-            const preparedAnalysis = buildAnalysisForClip(
-                preparedClip,
-                gridBeats,
-                toleranceBeats,
-                startBeat
-            );
+            // // if (!preparedAnalysis) {
+            // //     error("Failed to analyze prepared clip after reinserting warp markers.\n");
+            // //     return;
+            // // }
 
-            if (!preparedAnalysis) {
-                error("Failed to analyze prepared clip after reinserting warp markers.\n");
-                return;
-            }
+            // // State.state.lastAnalysis = preparedAnalysis.analysis;
+            // // State.state.lastGraph = preparedAnalysis.graph;
+            // // State.state.lastClipId = String(preparedClip.id);
 
-            State.state.lastAnalysis = preparedAnalysis.analysis;
-            State.state.lastGraph = preparedAnalysis.graph;
-            State.state.lastClipId = String(preparedClip.id);
+            // post(
+            //     "Prepared analysis stored. total=" + preparedAnalysis.analysis.summary.totalTargets +
+            //     ", accepted=" + preparedAnalysis.analysis.summary.accepted +
+            //     ", rejected=" + preparedAnalysis.analysis.summary.rejected +
+            //     ", meanAbsDriftBeats=" + preparedAnalysis.analysis.summary.meanAbsDriftBeats +
+            //     ", meanAbsDriftMs=" + preparedAnalysis.analysis.summary.meanAbsDriftMs + "\n"
+            // );
 
-            post(
-                "Prepared analysis stored. total=" + preparedAnalysis.analysis.summary.totalTargets +
-                ", accepted=" + preparedAnalysis.analysis.summary.accepted +
-                ", rejected=" + preparedAnalysis.analysis.summary.rejected +
-                ", meanAbsDriftBeats=" + preparedAnalysis.analysis.summary.meanAbsDriftBeats +
-                ", meanAbsDriftMs=" + preparedAnalysis.analysis.summary.meanAbsDriftMs + "\n"
-            );
+            outlet(0, "graph_json", JSON.stringify(result.graph));
 
-            outlet(0, "graph_json", JSON.stringify(preparedAnalysis.graph));
-
-            apply(preparedClip);
+            // apply(preparedClip);
         } catch (e: any) {
             error("analyze() failed: " + String(e) + "\n");
         }
