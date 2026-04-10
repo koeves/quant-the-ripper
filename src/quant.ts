@@ -461,36 +461,6 @@ namespace Live {
         return (res === "[\"id\", 0]") ? 1 : 0;
     }
 
-    // export function removeNonAcceptedWarpMarkers(
-    //     clip: LiveAPI,
-    //     analysis: Model.AnalysisResult
-    // ): { removed: number; failed: number } {
-    //     const markerBeats = Live.getWarpMarkersFromClip(clip)!.map((p) => p.beat_time);
-    //     markerBeats.pop(); // last one is shadow
-
-    //     let removed = 0;
-    //     let failed = 0;
-
-    //     const acceptedBeats = new Set(analysis.points
-    //         .filter((p) => p.accepted).map((p) => p.markerBeat));
-
-    //     const toRemove = markerBeats
-    //         .filter(p => !acceptedBeats.has(p))
-
-    //     post(`num markers: ${markerBeats.length}`);
-    //     post(`num accepted markers: ${acceptedBeats.size}`);
-    //     post(`toRemove: ${toRemove.length}`);
-
-    //     toRemove
-    //         .forEach(p => {
-    //             const ok = removeWarpMarker(clip, p);
-    //             if (ok) removed += 1;
-    //             else failed += 1;
-    //         });
-
-    //     return { removed: removed, failed: failed };
-    // }
-
     export function removeNonAcceptedWarpMarkers(
         clip: LiveAPI,
         analysis: Model.AnalysisResult
@@ -522,11 +492,11 @@ namespace Live {
             State.state.removalTask.cancel();
         }
 
-        State.state.removalTask = new Task(processRemoveNonAcceptedWarpMarkersBatch, Live);
+        State.state.removalTask = new Task(removeNonAcceptedWarpMarkersBatch, Live);
         State.state.removalTask.schedule(1);
     }
 
-    function processRemoveNonAcceptedWarpMarkersBatch(): void {
+    function removeNonAcceptedWarpMarkersBatch(): void {
         const pending = State.state.pendingRemoval;
         if (!pending) return;
 
@@ -590,44 +560,7 @@ namespace Live {
         return preparedClip;
     }
 
-    // export function snapAcceptedMarkersToTargets(
-    //     clip: LiveAPI,
-    //     analysis: Model.AnalysisResult
-    // ): { moved: number; skippedRejected: number; skippedNoSample: number; skippedNoWarpPoint: number } {
-    //     const accepted = analysis.points
-    //         .filter(function (p) { return p.accepted && p.markerSampleTime > 0 })
-    //         .sort(function (a, b) { return a.targetBeat - b.targetBeat; });
-
-    //     let moved = 0;
-    //     let skippedRejected = analysis.points.length - accepted.length;
-    //     let skippedNoSample = 0;
-    //     let skippedNoWarpPoint = 0;
-
-    //     for (let i = 0; i < accepted.length; i++) {
-    //         const p = accepted[i];
-
-    //         const beatMarker = Utils.round(p.markerBeat, 7);
-    //         const beatDistance = Utils.round(p.targetBeat - p.markerBeat, 7);
-
-    //         post(
-    //             "[snap " + i + "] currentBeat=" + beatMarker.toFixed(7) +
-    //             ", targetBeat=" + p.targetBeat.toFixed(7) +
-    //             ", beatDistance=" + beatDistance.toFixed(7) + "\n"
-    //         );
-
-    //         Live.moveWarpMarker(clip, beatMarker, beatDistance);
-    //         moved += 1;
-    //     }
-
-    //     return {
-    //         moved: moved,
-    //         skippedRejected: skippedRejected,
-    //         skippedNoSample: skippedNoSample,
-    //         skippedNoWarpPoint: skippedNoWarpPoint
-    //     };
-    // }
-
-    export function snapAcceptedMarkersToTargets(
+    export function snapAcceptedMarkers(
         clip: LiveAPI,
         analysis: Model.AnalysisResult
     ): void {
@@ -649,11 +582,11 @@ namespace Live {
             State.state.snapTask.cancel();
         }
 
-        State.state.snapTask = new Task(Live.processSnapAcceptedMarkersBatch, Live);
+        State.state.snapTask = new Task(snapAcceptedMarkersBatch, Live);
         State.state.snapTask.schedule(1);
     }
 
-    export function processSnapAcceptedMarkersBatch(): void {
+    function snapAcceptedMarkersBatch(): void {
         const pending = State.state.pendingSnap;
         if (!pending) return;
 
@@ -1057,7 +990,7 @@ namespace Quant {
             post("Created quanted clip at path: " + quantedClip.path + "\n");
 
             Utils.setProgress("Starting warp marker snapping", 0);
-            Live.snapAcceptedMarkersToTargets(quantedClip, analysis);
+            Live.snapAcceptedMarkers(quantedClip, analysis);
         } catch (e: any) {
             error("apply() failed: " + String(e) + "\n");
         }
