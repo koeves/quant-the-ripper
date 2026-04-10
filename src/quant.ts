@@ -57,6 +57,7 @@ namespace Model {
         tempo: number;
         gridBeats: number;
         toleranceBeats: number;
+        analysisStartBeat: number;
         clipStartBeat: number;
         clipEndBeat: number;
         startTime: number;
@@ -109,7 +110,6 @@ namespace Model {
         lastClipId: string;
 
         progressText: string;
-        progressBar: number;
 
         pendingRemoval: {
             clip: LiveAPI;
@@ -131,6 +131,11 @@ namespace Model {
 
         removalTask: Task | null;
         snapTask: Task | null;
+
+        finalizePrepClip: LiveAPI | null;
+        finalizeSnapClip: LiveAPI | null;
+        finalizePrepTask: Task | null;
+        finalizeSnapTask: Task | null;
     }
 }
 
@@ -144,13 +149,17 @@ namespace State {
         lastClipId: "",
 
         progressText: "",
-        progressBar: 0,
 
         pendingRemoval: null,
         pendingSnap: null,
 
         removalTask: null,
         snapTask: null,
+
+        finalizePrepClip: null,
+        finalizeSnapClip: null,
+        finalizePrepTask: null,
+        finalizeSnapTask: null,
     };
 }
 
@@ -217,16 +226,14 @@ namespace Utils {
         return String(round(sampleTime, 7));
     }
 
-    export function setProgress(text: string, progress: number): void {
+    export function setProgress(text: string): void {
         State.state.progressText = text;
-        State.state.progressBar = progress;
 
-        outlet(0, "progress_text", text);
-        outlet(0, "progress_bar", round(progress, 4));
+        outlet(0, "progress_text", text.replace("\"", ""));
     }
 
     export function clearProgress(): void {
-        setProgress("", 0);
+        setProgress("");
     }
 }
 
@@ -300,9 +307,37 @@ namespace Live {
     }
 
     export function clipInfo(): LiveAPI | null {
-        const clip = new LiveAPI(undefined, "live_set view detail_clip");
-        if (!clip || !clip.id || Number(clip.id) === 0) return null;
-        return clip;
+        const detailClip = new LiveAPI(undefined, "live_set view detail_clip");
+        if (detailClip && detailClip.id && Number(detailClip.id) !== 0) {
+            return detailClip;
+        }
+
+        const selectedTrack = new LiveAPI(undefined, "live_set view selected_track");
+        if (!selectedTrack || !selectedTrack.id || Number(selectedTrack.id) === 0) {
+            return null;
+        }
+
+        const arrangementClipCount = selectedTrack.getcount("arrangement_clips");
+        if (arrangementClipCount > 0) {
+            const clip = new LiveAPI(undefined, selectedTrack.path + " arrangement_clips 0");
+            if (clip && clip.id && Number(clip.id) !== 0) {
+                return clip;
+            }
+        }
+
+        const clipSlotCount = selectedTrack.getcount("clip_slots");
+        for (let i = 0; i < clipSlotCount; i++) {
+            const slot = new LiveAPI(undefined, selectedTrack.path + " clip_slots " + i);
+            const hasClip = Utils.toNumber(Utils.lastValue(slot.get("has_clip")));
+            if (hasClip === 1) {
+                const clip = new LiveAPI(undefined, selectedTrack.path + " clip_slots " + i + " clip");
+                if (clip && clip.id && Number(clip.id) !== 0) {
+                    return clip;
+                }
+            }
+        }
+
+        return null;
     }
 
     export function msPerBeat(tempo: number): number {
@@ -488,6 +523,8 @@ namespace Live {
             failed: 0
         };
 
+        State.state.finalizePrepClip = clip;
+
         if (State.state.removalTask) {
             State.state.removalTask.cancel();
         }
@@ -516,24 +553,26 @@ namespace Live {
         }
 
         const progress = total > 0 ? pending.index / total : 1;
-        Utils.setProgress(
-            "Removing warp markers " + pending.index + "/" + total,
-            progress
-        );
+        Utils.setProgress("Analyzing warp markers " + pending.index + "/" + total);
 
         if (pending.index < total) {
-            State.state.removalTask!.schedule(10);
+            State.state.removalTask!.schedule(3);
             return;
         }
 
         post(`Removed ${pending.removed} warp markers, failed ${pending.failed}\n`);
-        Utils.setProgress("Prepared clip ready", 1);
 
         State.state.pendingRemoval = null;
         if (State.state.removalTask) {
             State.state.removalTask.cancel();
             State.state.removalTask = null;
         }
+
+        if (State.state.finalizePrepTask) {
+            State.state.finalizePrepTask.cancel();
+        }
+        State.state.finalizePrepTask = new Task(Quant.finishPrep, Quant);
+        State.state.finalizePrepTask.schedule(1);
     }
 
     export function findPreparedClipForOriginal(originalClip: LiveAPI): LiveAPI | null {
@@ -578,6 +617,8 @@ namespace Live {
             skippedNoWarpPoint: 0
         };
 
+        State.state.finalizeSnapClip = clip;
+
         if (State.state.snapTask) {
             State.state.snapTask.cancel();
         }
@@ -609,21 +650,20 @@ namespace Live {
         }
 
         const progress = total > 0 ? pending.index / total : 1;
-        Utils.setProgress(
-            "Snapping warp markers " + pending.index + "/" + total,
-            progress
-        );
+        Utils.setProgress("Snapping warp markers " + pending.index + "/" + total);
 
         if (pending.index < total) {
-            State.state.snapTask!.schedule(10);
+            State.state.snapTask!.schedule(3);
             return;
         }
 
-        const clip = pending.clip;
-        const moved = pending.moved;
-        const skippedRejected = pending.skippedRejected;
-        const skippedNoSample = pending.skippedNoSample;
-        const skippedNoWarpPoint = pending.skippedNoWarpPoint;
+        post(
+            "Snap done on comparison clip. " +
+            "moved=" + pending.moved +
+            ", skippedRejected=" + pending.skippedRejected +
+            ", skippedNoSample=" + pending.skippedNoSample +
+            ", skippedNoWarpPoint=" + pending.skippedNoWarpPoint + "\n"
+        );
 
         State.state.pendingSnap = null;
         if (State.state.snapTask) {
@@ -631,42 +671,34 @@ namespace Live {
             State.state.snapTask = null;
         }
 
-        post(
-            "Snap done on comparison clip. " +
-            "moved=" + moved +
-            ", skippedRejected=" + skippedRejected +
-            ", skippedNoSample=" + skippedNoSample +
-            ", skippedNoWarpPoint=" + skippedNoWarpPoint + "\n"
-        );
+        if (State.state.finalizeSnapTask) {
+            State.state.finalizeSnapTask.cancel();
+        }
+        State.state.finalizeSnapTask = new Task(Quant.finishSnap, Quant);
+        State.state.finalizeSnapTask.schedule(1);
+    }
 
-        const analysis = State.state.lastAnalysis;
-        if (!analysis) {
-            Utils.clearProgress();
-            return;
+    export function deleteTrackByName(trackName: string): boolean {
+        const song = new LiveAPI(undefined, "live_set");
+        const trackCount = song.getcount("tracks");
+
+        for (let i = 0; i < trackCount; i++) {
+            const track = new LiveAPI(undefined, "live_set tracks " + i);
+            const name = Utils.toPropertyString(track.get("name"));
+
+            if (name === trackName) {
+                try {
+                    song.call("delete_track", i);
+                    post("Deleted track: " + trackName + "\n");
+                    return true;
+                } catch (e: any) {
+                    post("Failed deleting track " + trackName + ": " + String(e) + "\n");
+                    return false;
+                }
+            }
         }
 
-        const afterResult = Quant.buildAnalysisForClip(
-            clip,
-            analysis.gridBeats,
-            analysis.toleranceBeats
-        );
-
-        if (afterResult) {
-            State.state.lastAfterAnalysis = afterResult.analysis;
-            State.state.lastAfterGraph = afterResult.graph;
-
-            post(
-                "Post-snap analysis done. total=" + afterResult.analysis.summary.totalTargets +
-                ", accepted=" + afterResult.analysis.summary.accepted +
-                ", rejected=" + afterResult.analysis.summary.rejected +
-                ", meanAbsDriftBeats=" + afterResult.analysis.summary.meanAbsDriftBeats +
-                ", meanAbsDriftMs=" + afterResult.analysis.summary.meanAbsDriftMs + "\n"
-            );
-
-            outlet(0, "graph_after_json", JSON.stringify(afterResult.graph));
-        }
-
-        Utils.setProgress("Snap complete", 1);
+        return false;
     }
 }
 
@@ -680,21 +712,46 @@ namespace Quant {
         post("ready\n");
     }
 
-    export function clear_analysis(): void {
+    export function clear(): void {
+        const analysis = State.state.lastAnalysis;
+
         State.state.lastAnalysis = null;
         State.state.lastGraph = null;
         State.state.lastAfterAnalysis = null;
         State.state.lastAfterGraph = null;
         State.state.lastClipId = "";
-        outlet(0, "graph_json", JSON.stringify({ type: "graph_cleared" }));
-    }
+        State.state.finalizePrepClip = null;
+        State.state.finalizeSnapClip = null;
 
-    export function dump_graph(): void {
-        if (!State.state.lastGraph) {
-            post("No stored graph data.\n");
-            return;
+        if (State.state.removalTask) {
+            State.state.removalTask.cancel();
+            State.state.removalTask = null;
         }
-        post(JSON.stringify(State.state.lastGraph, null, 2) + "\n");
+        if (State.state.snapTask) {
+            State.state.snapTask.cancel();
+            State.state.snapTask = null;
+        }
+        if (State.state.finalizePrepTask) {
+            State.state.finalizePrepTask.cancel();
+            State.state.finalizePrepTask = null;
+        }
+        if (State.state.finalizeSnapTask) {
+            State.state.finalizeSnapTask.cancel();
+            State.state.finalizeSnapTask = null;
+        }
+
+        State.state.pendingRemoval = null;
+        State.state.pendingSnap = null;
+
+        if (analysis) {
+            const preparedTrackName = analysis.clipName;
+            const quantedTrackName = analysis.clipName.replace("prepared", "quanted");
+
+            Live.deleteTrackByName(preparedTrackName);
+            Live.deleteTrackByName(quantedTrackName);
+        }
+
+        Utils.clearProgress();
     }
 
     function validateClipForAnalysis(clip: LiveAPI): { filePath: string } | null {
@@ -817,6 +874,7 @@ namespace Quant {
             tempo: Utils.round(tempo, 6),
             gridBeats: gridBeats,
             toleranceBeats: toleranceBeats,
+            analysisStartBeat: (startBeat !== undefined) ? startBeat : 0,
             clipStartBeat: Utils.round(clipStartBeat, 6),
             clipEndBeat: Utils.round(clipEndBeat, 6),
             startTime: Utils.round(arrangementStart, 6),
@@ -863,6 +921,15 @@ namespace Quant {
             rejected: points.length - acceptedPoints.length,
             points: graphPoints
         };
+
+        post(
+            "Analysis on clip " + analysis.clipName + " done. " +
+            "total=" + analysis.summary.totalTargets +
+            ", accepted=" + analysis.summary.accepted +
+            ", rejected=" + analysis.summary.rejected +
+            ", meanAbsDriftBeats=" + analysis.summary.meanAbsDriftBeats +
+            ", meanAbsDriftMs=" + analysis.summary.meanAbsDriftMs + "\n"
+        );
 
         return {
             analysis: analysis,
@@ -923,19 +990,8 @@ namespace Quant {
             State.state.lastGraph = result.graph;
             State.state.lastClipId = String(preparedClip.id);
 
-            post(
-                "Analysis done. total=" + result.analysis.summary.totalTargets +
-                ", accepted=" + result.analysis.summary.accepted +
-                ", rejected=" + result.analysis.summary.rejected +
-                ", meanAbsDriftBeats=" + result.analysis.summary.meanAbsDriftBeats +
-                ", meanAbsDriftMs=" + result.analysis.summary.meanAbsDriftMs + "\n"
-            );
-
-            outlet(0, "graph_json", JSON.stringify(result.graph));
-
-            Utils.setProgress("Starting warp marker removal", 0);
+            Utils.setProgress("Starting warp marker removal");
             Live.removeNonAcceptedWarpMarkers(preparedClip, result.analysis);
-
         } catch (e: any) {
             error("analyze() failed: " + String(e) + "\n");
         }
@@ -989,10 +1045,77 @@ namespace Quant {
 
             post("Created quanted clip at path: " + quantedClip.path + "\n");
 
-            Utils.setProgress("Starting warp marker snapping", 0);
+            Utils.setProgress("Starting warp marker snapping");
             Live.snapAcceptedMarkers(quantedClip, analysis);
         } catch (e: any) {
             error("apply() failed: " + String(e) + "\n");
+        }
+    }
+
+    export function finishPrep(): void {
+        try {
+            if (!State.state.lastAnalysis) return;
+            if (!State.state.finalizePrepClip) return;
+
+            const clip = State.state.finalizePrepClip;
+
+            const previous = State.state.lastAnalysis;
+            const result = buildAnalysisForClip(
+                clip,
+                previous.gridBeats,
+                previous.toleranceBeats,
+                previous.analysisStartBeat
+            );
+
+            if (!result) return;
+
+            State.state.lastAnalysis = result.analysis;
+            State.state.lastGraph = result.graph;
+            State.state.lastClipId = String(clip.id);
+
+            outlet(0, "graph_json", JSON.stringify(result.graph));
+            Utils.setProgress(`Done: selected ${result.analysis.points.length} warp markers`);
+        } catch (e: any) {
+            error("finishPrep() failed: " + String(e) + "\n");
+        } finally {
+            State.state.finalizePrepClip = null;
+            if (State.state.finalizePrepTask) {
+                State.state.finalizePrepTask.cancel();
+                State.state.finalizePrepTask = null;
+            }
+        }
+    }
+
+    export function finishSnap(): void {
+        try {
+            if (!State.state.lastAnalysis) return;
+            if (!State.state.finalizeSnapClip) return;
+
+            const clip = State.state.finalizeSnapClip;
+
+            const previous = State.state.lastAnalysis;
+            const result = buildAnalysisForClip(
+                clip,
+                previous.gridBeats,
+                previous.toleranceBeats,
+                previous.analysisStartBeat
+            );
+
+            if (!result) return;
+
+            State.state.lastAfterAnalysis = result.analysis;
+            State.state.lastAfterGraph = result.graph;
+
+            outlet(0, "graph_after_json", JSON.stringify(result.graph));
+            Utils.setProgress("Done");
+        } catch (e: any) {
+            error("finishSnap() failed: " + String(e) + "\n");
+        } finally {
+            State.state.finalizeSnapClip = null;
+            if (State.state.finalizeSnapTask) {
+                State.state.finalizeSnapTask.cancel();
+                State.state.finalizeSnapTask = null;
+            }
         }
     }
 }
@@ -1003,6 +1126,10 @@ function init(): void {
 
 function bang(): void {
     Quant.bang();
+}
+
+function clear(): void {
+    Quant.clear();
 }
 
 function prep(
@@ -1019,12 +1146,4 @@ function snap(): void {
 
 function markers(): void {
     Quant.markers();
-}
-
-function clear_analysis(): void {
-    Quant.clear_analysis();
-}
-
-function dump_graph(): void {
-    Quant.dump_graph();
 }

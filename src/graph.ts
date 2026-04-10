@@ -52,12 +52,10 @@ var COLORS = {
 };
 
 function loadbang() {
-    post("graph loadbang\n");
     mgraphics.redraw();
 }
 
-function clear() {
-    post("graph clear\n");
+function clear_graph() {
     graph = null;
     mgraphics.redraw();
 }
