@@ -21,6 +21,14 @@ declare class LiveAPI {
     getcount(child: string): number;
 }
 
+declare class Task {
+    constructor(fn: Function, context?: any);
+    interval: number;
+    repeat(count?: number, delay?: number): void;
+    schedule(delay?: number): void;
+    cancel(): void;
+}
+
 outlets = 1;
 inlets = 1;
 
@@ -99,6 +107,30 @@ namespace Model {
         lastAfterAnalysis: AnalysisResult | null;
         lastAfterGraph: GraphPayload | null;
         lastClipId: string;
+
+        progressText: string;
+        progressBar: number;
+
+        pendingRemoval: {
+            clip: LiveAPI;
+            beats: number[];
+            index: number;
+            removed: number;
+            failed: number;
+        } | null;
+
+        pendingSnap: {
+            clip: LiveAPI;
+            accepted: AnalysisPoint[];
+            index: number;
+            moved: number;
+            skippedRejected: number;
+            skippedNoSample: number;
+            skippedNoWarpPoint: number;
+        } | null;
+
+        removalTask: Task | null;
+        snapTask: Task | null;
     }
 }
 
@@ -110,6 +142,15 @@ namespace State {
         lastAfterAnalysis: null,
         lastAfterGraph: null,
         lastClipId: "",
+
+        progressText: "",
+        progressBar: 0,
+
+        pendingRemoval: null,
+        pendingSnap: null,
+
+        removalTask: null,
+        snapTask: null,
     };
 }
 
@@ -174,6 +215,18 @@ namespace Utils {
 
     export function sampleKey(sampleTime: number): string {
         return String(round(sampleTime, 7));
+    }
+
+    export function setProgress(text: string, progress: number): void {
+        State.state.progressText = text;
+        State.state.progressBar = progress;
+
+        outlet(0, "progress_text", text);
+        outlet(0, "progress_bar", round(progress, 4));
+    }
+
+    export function clearProgress(): void {
+        setProgress("", 0);
     }
 }
 
@@ -400,7 +453,7 @@ namespace Live {
         return (res === "[\"id\", 0]") ? 1 : 0;
     }
 
-    function removeWarpMarker(
+    export function removeWarpMarker(
         clip: LiveAPI,
         beatTime: number,
     ): number {
@@ -408,34 +461,109 @@ namespace Live {
         return (res === "[\"id\", 0]") ? 1 : 0;
     }
 
+    // export function removeNonAcceptedWarpMarkers(
+    //     clip: LiveAPI,
+    //     analysis: Model.AnalysisResult
+    // ): { removed: number; failed: number } {
+    //     const markerBeats = Live.getWarpMarkersFromClip(clip)!.map((p) => p.beat_time);
+    //     markerBeats.pop(); // last one is shadow
+
+    //     let removed = 0;
+    //     let failed = 0;
+
+    //     const acceptedBeats = new Set(analysis.points
+    //         .filter((p) => p.accepted).map((p) => p.markerBeat));
+
+    //     const toRemove = markerBeats
+    //         .filter(p => !acceptedBeats.has(p))
+
+    //     post(`num markers: ${markerBeats.length}`);
+    //     post(`num accepted markers: ${acceptedBeats.size}`);
+    //     post(`toRemove: ${toRemove.length}`);
+
+    //     toRemove
+    //         .forEach(p => {
+    //             const ok = removeWarpMarker(clip, p);
+    //             if (ok) removed += 1;
+    //             else failed += 1;
+    //         });
+
+    //     return { removed: removed, failed: failed };
+    // }
+
     export function removeNonAcceptedWarpMarkers(
         clip: LiveAPI,
         analysis: Model.AnalysisResult
-    ): { removed: number; failed: number } {
+    ): void {
         const markerBeats = Live.getWarpMarkersFromClip(clip)!.map((p) => p.beat_time);
         markerBeats.pop(); // last one is shadow
 
-        let removed = 0;
-        let failed = 0;
+        const acceptedBeats = new Set(
+            analysis.points
+                .filter((p) => p.accepted)
+                .map((p) => p.markerBeat)
+        );
 
-        const acceptedBeats = new Set(analysis.points
-            .filter((p) => p.accepted).map((p) => p.markerBeat));
-
-        const toRemove = markerBeats
-            .filter(p => !acceptedBeats.has(p))
+        const toRemove = markerBeats.filter((p) => !acceptedBeats.has(p));
 
         post(`num markers: ${markerBeats.length}`);
         post(`num accepted markers: ${acceptedBeats.size}`);
         post(`toRemove: ${toRemove.length}`);
 
-        toRemove
-            .forEach(p => {
-                const ok = removeWarpMarker(clip, p);
-                if (ok) removed += 1;
-                else failed += 1;
-            });
+        State.state.pendingRemoval = {
+            clip: clip,
+            beats: toRemove,
+            index: 0,
+            removed: 0,
+            failed: 0
+        };
 
-        return { removed: removed, failed: failed };
+        if (State.state.removalTask) {
+            State.state.removalTask.cancel();
+        }
+
+        State.state.removalTask = new Task(processRemoveNonAcceptedWarpMarkersBatch, Live);
+        State.state.removalTask.schedule(1);
+    }
+
+    function processRemoveNonAcceptedWarpMarkersBatch(): void {
+        const pending = State.state.pendingRemoval;
+        if (!pending) return;
+
+        const batchSize = 16;
+        const total = pending.beats.length;
+
+        let processed = 0;
+        while (processed < batchSize && pending.index < total) {
+            const beat = pending.beats[pending.index];
+            const ok = removeWarpMarker(pending.clip, beat);
+
+            if (ok) pending.removed += 1;
+            else pending.failed += 1;
+
+            pending.index += 1;
+            processed += 1;
+        }
+
+        const progress = total > 0 ? pending.index / total : 1;
+        Utils.setProgress(
+            "Removing warp markers " + pending.index + "/" + total,
+            progress
+        );
+
+        if (pending.index < total) {
+            State.state.removalTask!.schedule(10);
+            return;
+        }
+
+        post(`Removed ${pending.removed} warp markers, failed ${pending.failed}\n`);
+        Utils.setProgress("Prepared clip ready", 1);
+
+        State.state.pendingRemoval = null;
+        if (State.state.removalTask) {
+            State.state.removalTask.cancel();
+            State.state.removalTask = null;
+        }
     }
 
     export function findPreparedClipForOriginal(originalClip: LiveAPI): LiveAPI | null {
@@ -462,41 +590,150 @@ namespace Live {
         return preparedClip;
     }
 
+    // export function snapAcceptedMarkersToTargets(
+    //     clip: LiveAPI,
+    //     analysis: Model.AnalysisResult
+    // ): { moved: number; skippedRejected: number; skippedNoSample: number; skippedNoWarpPoint: number } {
+    //     const accepted = analysis.points
+    //         .filter(function (p) { return p.accepted && p.markerSampleTime > 0 })
+    //         .sort(function (a, b) { return a.targetBeat - b.targetBeat; });
+
+    //     let moved = 0;
+    //     let skippedRejected = analysis.points.length - accepted.length;
+    //     let skippedNoSample = 0;
+    //     let skippedNoWarpPoint = 0;
+
+    //     for (let i = 0; i < accepted.length; i++) {
+    //         const p = accepted[i];
+
+    //         const beatMarker = Utils.round(p.markerBeat, 7);
+    //         const beatDistance = Utils.round(p.targetBeat - p.markerBeat, 7);
+
+    //         post(
+    //             "[snap " + i + "] currentBeat=" + beatMarker.toFixed(7) +
+    //             ", targetBeat=" + p.targetBeat.toFixed(7) +
+    //             ", beatDistance=" + beatDistance.toFixed(7) + "\n"
+    //         );
+
+    //         Live.moveWarpMarker(clip, beatMarker, beatDistance);
+    //         moved += 1;
+    //     }
+
+    //     return {
+    //         moved: moved,
+    //         skippedRejected: skippedRejected,
+    //         skippedNoSample: skippedNoSample,
+    //         skippedNoWarpPoint: skippedNoWarpPoint
+    //     };
+    // }
+
     export function snapAcceptedMarkersToTargets(
         clip: LiveAPI,
         analysis: Model.AnalysisResult
-    ): { moved: number; skippedRejected: number; skippedNoSample: number; skippedNoWarpPoint: number } {
+    ): void {
         const accepted = analysis.points
-            .filter(function (p) { return p.accepted && p.markerSampleTime > 0 })
+            .filter(function (p) { return p.accepted && p.markerSampleTime > 0; })
             .sort(function (a, b) { return a.targetBeat - b.targetBeat; });
 
-        let moved = 0;
-        let skippedRejected = analysis.points.length - accepted.length;
-        let skippedNoSample = 0;
-        let skippedNoWarpPoint = 0;
+        State.state.pendingSnap = {
+            clip: clip,
+            accepted: accepted,
+            index: 0,
+            moved: 0,
+            skippedRejected: analysis.points.length - accepted.length,
+            skippedNoSample: 0,
+            skippedNoWarpPoint: 0
+        };
 
-        for (let i = 0; i < accepted.length; i++) {
-            const p = accepted[i];
+        if (State.state.snapTask) {
+            State.state.snapTask.cancel();
+        }
+
+        State.state.snapTask = new Task(Live.processSnapAcceptedMarkersBatch, Live);
+        State.state.snapTask.schedule(1);
+    }
+
+    export function processSnapAcceptedMarkersBatch(): void {
+        const pending = State.state.pendingSnap;
+        if (!pending) return;
+
+        const batchSize = 12;
+        const total = pending.accepted.length;
+
+        let processed = 0;
+        while (processed < batchSize && pending.index < total) {
+            const p = pending.accepted[pending.index];
 
             const beatMarker = Utils.round(p.markerBeat, 7);
             const beatDistance = Utils.round(p.targetBeat - p.markerBeat, 7);
 
-            post(
-                "[snap " + i + "] currentBeat=" + beatMarker.toFixed(7) +
-                ", targetBeat=" + p.targetBeat.toFixed(7) +
-                ", beatDistance=" + beatDistance.toFixed(7) + "\n"
-            );
+            const ok = moveWarpMarker(pending.clip, beatMarker, beatDistance);
+            if (ok) pending.moved += 1;
+            else pending.skippedNoWarpPoint += 1;
 
-            Live.moveWarpMarker(clip, beatMarker, beatDistance);
-            moved += 1;
+            pending.index += 1;
+            processed += 1;
         }
 
-        return {
-            moved: moved,
-            skippedRejected: skippedRejected,
-            skippedNoSample: skippedNoSample,
-            skippedNoWarpPoint: skippedNoWarpPoint
-        };
+        const progress = total > 0 ? pending.index / total : 1;
+        Utils.setProgress(
+            "Snapping warp markers " + pending.index + "/" + total,
+            progress
+        );
+
+        if (pending.index < total) {
+            State.state.snapTask!.schedule(10);
+            return;
+        }
+
+        const clip = pending.clip;
+        const moved = pending.moved;
+        const skippedRejected = pending.skippedRejected;
+        const skippedNoSample = pending.skippedNoSample;
+        const skippedNoWarpPoint = pending.skippedNoWarpPoint;
+
+        State.state.pendingSnap = null;
+        if (State.state.snapTask) {
+            State.state.snapTask.cancel();
+            State.state.snapTask = null;
+        }
+
+        post(
+            "Snap done on comparison clip. " +
+            "moved=" + moved +
+            ", skippedRejected=" + skippedRejected +
+            ", skippedNoSample=" + skippedNoSample +
+            ", skippedNoWarpPoint=" + skippedNoWarpPoint + "\n"
+        );
+
+        const analysis = State.state.lastAnalysis;
+        if (!analysis) {
+            Utils.clearProgress();
+            return;
+        }
+
+        const afterResult = Quant.buildAnalysisForClip(
+            clip,
+            analysis.gridBeats,
+            analysis.toleranceBeats
+        );
+
+        if (afterResult) {
+            State.state.lastAfterAnalysis = afterResult.analysis;
+            State.state.lastAfterGraph = afterResult.graph;
+
+            post(
+                "Post-snap analysis done. total=" + afterResult.analysis.summary.totalTargets +
+                ", accepted=" + afterResult.analysis.summary.accepted +
+                ", rejected=" + afterResult.analysis.summary.rejected +
+                ", meanAbsDriftBeats=" + afterResult.analysis.summary.meanAbsDriftBeats +
+                ", meanAbsDriftMs=" + afterResult.analysis.summary.meanAbsDriftMs + "\n"
+            );
+
+            outlet(0, "graph_after_json", JSON.stringify(afterResult.graph));
+        }
+
+        Utils.setProgress("Snap complete", 1);
     }
 }
 
@@ -550,7 +787,7 @@ namespace Quant {
         return { filePath: filePath };
     }
 
-    function buildAnalysisForClip(
+    export function buildAnalysisForClip(
         clip: LiveAPI,
         gridBeats: number,
         toleranceBeats: number,
@@ -700,7 +937,7 @@ namespace Quant {
         };
     }
 
-    export function analyze(
+    export function prep(
         gridBeats: number = 4,
         toleranceBeats: number = 0.5,
         startBeat: number = 0
@@ -763,8 +1000,8 @@ namespace Quant {
 
             outlet(0, "graph_json", JSON.stringify(result.graph));
 
-            const { removed, failed } = Live.removeNonAcceptedWarpMarkers(preparedClip, result.analysis);
-            post(`Removed ${removed} warp markers, failed ${failed}`);
+            Utils.setProgress("Starting warp marker removal", 0);
+            Live.removeNonAcceptedWarpMarkers(preparedClip, result.analysis);
 
         } catch (e: any) {
             error("analyze() failed: " + String(e) + "\n");
@@ -778,7 +1015,7 @@ namespace Quant {
         post(JSON.stringify(markers));
     }
 
-    export function apply(): void {
+    export function snap(): void {
         try {
             if (!State.state.initialized) {
                 error("Device not initialized yet. Trigger init first.\n");
@@ -819,36 +1056,8 @@ namespace Quant {
 
             post("Created quanted clip at path: " + quantedClip.path + "\n");
 
-            const snapStats = Live.snapAcceptedMarkersToTargets(quantedClip, analysis);
-
-            post(
-                "Snap done on comparison clip. " +
-                "moved=" + snapStats.moved +
-                ", skippedRejected=" + snapStats.skippedRejected +
-                ", skippedNoSample=" + snapStats.skippedNoSample +
-                ", skippedNoWarpPoint=" + snapStats.skippedNoWarpPoint + "\n"
-            );
-
-            const afterResult = buildAnalysisForClip(
-                quantedClip,
-                analysis.gridBeats,
-                analysis.toleranceBeats
-            );
-
-            if (afterResult) {
-                State.state.lastAfterAnalysis = afterResult.analysis;
-                State.state.lastAfterGraph = afterResult.graph;
-
-                post(
-                    "Post-snap analysis done. total=" + afterResult.analysis.summary.totalTargets +
-                    ", accepted=" + afterResult.analysis.summary.accepted +
-                    ", rejected=" + afterResult.analysis.summary.rejected +
-                    ", meanAbsDriftBeats=" + afterResult.analysis.summary.meanAbsDriftBeats +
-                    ", meanAbsDriftMs=" + afterResult.analysis.summary.meanAbsDriftMs + "\n"
-                );
-
-                outlet(0, "graph_after_json", JSON.stringify(afterResult.graph));
-            }
+            Utils.setProgress("Starting warp marker snapping", 0);
+            Live.snapAcceptedMarkersToTargets(quantedClip, analysis);
         } catch (e: any) {
             error("apply() failed: " + String(e) + "\n");
         }
@@ -863,16 +1072,16 @@ function bang(): void {
     Quant.bang();
 }
 
-function analyze(
+function prep(
     gridBeats?: number,
     toleranceBeats?: number,
     startBeat?: number,
 ): void {
-    Quant.analyze(gridBeats, toleranceBeats, startBeat);
+    Quant.prep(gridBeats, toleranceBeats, startBeat);
 }
 
-function apply(): void {
-    Quant.apply();
+function snap(): void {
+    Quant.snap();
 }
 
 function markers(): void {
