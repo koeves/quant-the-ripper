@@ -553,7 +553,8 @@ namespace Quant {
     function buildAnalysisForClip(
         clip: LiveAPI,
         gridBeats: number,
-        toleranceBeats: number
+        toleranceBeats: number,
+        startBeat?: number
     ): { analysis: Model.AnalysisResult; graph: Model.GraphPayload } | null {
         const validated = validateClipForAnalysis(clip);
         if (!validated) return null;
@@ -580,7 +581,7 @@ namespace Quant {
 
         const lastUsableMarkerBeat = sourceMarkers[sourceMarkers.length - 1].beat_time;
 
-        for (let targetBeat = 0; targetBeat <= lastUsableMarkerBeat + toleranceBeats; targetBeat += gridBeats) {
+        for (let targetBeat = (startBeat) ? startBeat : 0; targetBeat <= lastUsableMarkerBeat + toleranceBeats; targetBeat += gridBeats) {
             if (markerIndex >= sourceMarkers.length) break;
 
             const match = Live.findNearestForwardMarker(
@@ -745,7 +746,7 @@ namespace Quant {
                 `${clipName}_prepared`
             );
 
-            const result = buildAnalysisForClip(preparedClip, gridBeats, toleranceBeats);
+            const result = buildAnalysisForClip(preparedClip, gridBeats, toleranceBeats, startBeat);
             if (!result) return;
 
             State.state.lastAnalysis = result.analysis;
