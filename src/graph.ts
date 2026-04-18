@@ -103,16 +103,15 @@ function fmt(n: number, digits: number) {
 }
 
 function chooseXTickStep(gridBeats: number, xSpan: number) {
-    var targetTicks = 8;
+    var targetTicks = 4;
     var raw = xSpan / targetTicks;
-    var base = gridBeats;
+    var base = Math.max(1, gridBeats);
 
     if (raw <= base) return base;
     if (raw <= base * 2) return base * 2;
     if (raw <= base * 4) return base * 4;
     if (raw <= base * 8) return base * 8;
-    if (raw <= base * 16) return base * 16;
-    return base * 32;
+    return base * 16;
 }
 
 function paint() {
@@ -123,15 +122,7 @@ function paint() {
     mgraphics.rectangle(0, 0, w, h);
     mgraphics.fill();
 
-    setColor(COLORS.panelBorder);
-    mgraphics.set_line_width(1);
-    mgraphics.rectangle(0.5, 0.5, w - 1, h - 1);
-    mgraphics.stroke();
-
     if (!graph || !graph.points || graph.points.length === 0) {
-        setColor(COLORS.text);
-        mgraphics.move_to(12, 22);
-        mgraphics.show_text("No analysis");
         return;
     }
 
@@ -139,110 +130,86 @@ function paint() {
     var tol = Math.max(Math.abs(graph.toleranceBeats), 0.0001);
     var maxAbs = Math.max(Math.abs(graph.yMinBeats), Math.abs(graph.yMaxBeats), tol);
 
-    // Smaller plot area
-    var leftPad = 70;
-    var rightPad = 10;
-    var topPad = 18;
-    var bottomPad = 46;
-
-    var plotW = w - leftPad - rightPad;
-    var plotH = h - topPad - bottomPad;
+    var plotW = w;
+    var plotH = h;
 
     var xMin = graph.xMin;
     var xMax = graph.xMax;
     var xSpan = Math.max(1, xMax - xMin);
 
-    var zeroY = topPad + plotH / 2;
-    var axisX = leftPad;
+    var zeroY = plotH / 2;
 
-    var maxAbs = Math.max(
-        Math.abs(maxAbs),
-        Math.abs(tol)
-    );
+    maxAbs = Math.max(Math.abs(maxAbs), Math.abs(tol));
 
     function yToPix(v: number) {
         return zeroY - (v / maxAbs) * (plotH / 2);
     }
 
     function xToPix(v: number) {
-        return leftPad + ((v - xMin) / xSpan) * plotW;
+        return ((v - xMin) / xSpan) * plotW;
     }
 
-    // tolerance fill band
+    // tolerance band
     var yTolTop = yToPix(tol);
     var yTolBottom = yToPix(-tol);
     setColor(COLORS.toleranceFill);
-    mgraphics.rectangle(leftPad, yTolTop, plotW, yTolBottom - yTolTop);
+    mgraphics.rectangle(0, yTolTop, plotW, yTolBottom - yTolTop);
     mgraphics.fill();
 
-    // denser horizontal guides near tolerance
-    var gridVals = [];
-    gridVals.push(-maxAbs);
-
-    var innerSteps = 4;
-    for (var i = -innerSteps; i <= innerSteps; i++) {
-        gridVals.push((i / innerSteps) * tol);
-    }
-
-    gridVals.push(maxAbs);
-
+    // horizontal grid (minimal)
+    var gridVals = [-maxAbs, -tol, 0, tol, maxAbs];
     setColor(COLORS.grid);
     mgraphics.set_line_width(1);
     for (var gi = 0; gi < gridVals.length; gi++) {
         var gy = yToPix(gridVals[gi]);
-        mgraphics.move_to(leftPad, gy);
-        mgraphics.line_to(leftPad + plotW, gy);
+        mgraphics.move_to(0, gy);
+        mgraphics.line_to(plotW, gy);
         mgraphics.stroke();
     }
 
-    // x grid/ticks
+    // vertical grid (no labels)
     var tickStep = chooseXTickStep(graph.gridBeats, xSpan);
     var firstTick = Math.ceil(xMin / tickStep) * tickStep;
-    var xTickLabelY = topPad + plotH + 16;
 
+    setColor(COLORS.grid);
     for (var xb = firstTick; xb <= xMax + 0.0001; xb += tickStep) {
         var xp = xToPix(xb);
-        setColor(COLORS.grid);
-        mgraphics.move_to(xp, topPad);
-        mgraphics.line_to(xp, topPad + plotH);
+        mgraphics.move_to(xp, 0);
+        mgraphics.line_to(xp, plotH);
         mgraphics.stroke();
-
-        setColor(COLORS.mutedText);
-        mgraphics.move_to(xp - 8, xTickLabelY);
-        mgraphics.show_text(String(Math.round(xb)));
     }
 
     // axes
     setColor(COLORS.axis);
-    mgraphics.set_line_width(1.25);
+    mgraphics.set_line_width(1);
 
-    // y-axis
-    mgraphics.move_to(axisX, topPad);
-    mgraphics.line_to(axisX, topPad + plotH);
+    // y-axis (left edge)
+    mgraphics.move_to(0, 0);
+    mgraphics.line_to(0, plotH);
     mgraphics.stroke();
 
-    // x-axis
-    mgraphics.move_to(leftPad, zeroY);
-    mgraphics.line_to(leftPad + plotW, zeroY);
+    // x-axis (zero line)
+    mgraphics.move_to(0, zeroY);
+    mgraphics.line_to(plotW, zeroY);
     mgraphics.stroke();
 
     // tolerance dashed lines
     setColor(COLORS.tolerance);
     mgraphics.set_line_width(1);
-    drawDashedHorizontal(yTolTop, leftPad, leftPad + plotW, 6, 4);
-    drawDashedHorizontal(yTolBottom, leftPad, leftPad + plotW, 6, 4);
+    drawDashedHorizontal(yTolTop, 0, plotW, 3, 2);
+    drawDashedHorizontal(yTolBottom, 0, plotW, 3, 2);
 
-    // zero line highlight
+    // zero highlight
     setColor(COLORS.zero);
-    mgraphics.set_line_width(1.2);
-    mgraphics.move_to(leftPad, zeroY);
-    mgraphics.line_to(leftPad + plotW, zeroY);
+    mgraphics.set_line_width(1);
+    mgraphics.move_to(0, zeroY);
+    mgraphics.line_to(plotW, zeroY);
     mgraphics.stroke();
 
     // bars
     var n = points.length;
     var stepPx = plotW / Math.max(n, 1);
-    var barW = Math.max(2, stepPx * 0.65);
+    var barW = Math.max(1, Math.min(4, stepPx * 0.7));
 
     for (var bi = 0; bi < n; bi++) {
         var p = points[bi];
@@ -252,45 +219,8 @@ function paint() {
         setColor(p.ok ? COLORS.ok : COLORS.reject);
 
         var rectY = Math.min(y, zeroY);
-        var rectH = Math.max(2, Math.abs(y - zeroY));
+        var rectH = Math.max(1, Math.abs(y - zeroY));
         mgraphics.rectangle(x, rectY, barW, rectH);
         mgraphics.fill();
     }
-
-    // y-axis labels
-    setColor(COLORS.mutedText);
-
-    // y-axis labels shifted right so they sit to the right of "drift"
-    var yLabelX = 34;
-
-    // y-axis labels
-    mgraphics.move_to(yLabelX, yToPix(maxAbs) + 4);
-    mgraphics.show_text("+" + fmt(maxAbs, 2));
-
-    mgraphics.move_to(yLabelX, yToPix(tol) + 4);
-    mgraphics.show_text("+" + fmt(tol, 2));
-
-    mgraphics.move_to(yLabelX + 14, zeroY + 4);
-    mgraphics.show_text("0");
-
-    mgraphics.move_to(yLabelX, yToPix(-tol) + 4);
-    mgraphics.show_text("-" + fmt(tol, 2));
-
-    mgraphics.move_to(yLabelX, yToPix(-maxAbs) + 4);
-    mgraphics.show_text("-" + fmt(maxAbs, 2));
-
-    // "drift" vertically centered, left of y ticks
-    var driftY = topPad + plotH / 2 + 4;
-    mgraphics.move_to(8, driftY);
-    mgraphics.show_text("drift");
-
-    // "beats" centered below x ticks
-    var beatsText = "beats";
-    var approxCharW = 6.2;
-    var beatsW = beatsText.length * approxCharW;
-    var beatsX = leftPad + (plotW - beatsW) / 2;
-    var beatsY = h - 10;
-
-    mgraphics.move_to(beatsX, beatsY);
-    mgraphics.show_text(beatsText);
 }
