@@ -10,6 +10,9 @@
         "ignoreDeprecations": "6.0"
     },
     "include": [
-        "src/quant.ts"
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "src/graph/graph.ts"
     ]
 }

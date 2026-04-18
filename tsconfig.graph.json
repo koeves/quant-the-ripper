@@ -10,6 +10,6 @@
         "ignoreDeprecations": "6.0"
     },
     "include": [
-        "src/graph.ts"
+        "src/graph/graph.ts"
     ]
 }
