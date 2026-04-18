@@ -118,6 +118,7 @@ function paint() {
     var w = box.rect[2] - box.rect[0];
     var h = box.rect[3] - box.rect[1];
 
+    // background
     setColor(COLORS.bg);
     mgraphics.rectangle(0, 0, w, h);
     mgraphics.fill();
@@ -128,83 +129,108 @@ function paint() {
 
     var points = graph.points;
     var tol = Math.max(Math.abs(graph.toleranceBeats), 0.0001);
-    var maxAbs = Math.max(Math.abs(graph.yMinBeats), Math.abs(graph.yMaxBeats), tol);
 
-    var plotW = w;
+    var payloadMin = graph.yMinBeats;
+    var payloadMax = graph.yMaxBeats;
+
+    // make plotted range a bit larger than payload/tolerance range
+    var baseAbs = Math.max(Math.abs(payloadMin), Math.abs(payloadMax), tol);
+    var plotAbs = baseAbs * 1.18; // headroom so red dashed lines are visible
+    if (plotAbs <= 0) plotAbs = 1;
+
+    // small left axis area
+    var axisPad = 26;
+    var plotX = axisPad;
+    var plotY = 0;
+    var plotW = Math.max(1, w - axisPad);
     var plotH = h;
 
     var xMin = graph.xMin;
     var xMax = graph.xMax;
     var xSpan = Math.max(1, xMax - xMin);
 
-    var zeroY = plotH / 2;
-
-    maxAbs = Math.max(Math.abs(maxAbs), Math.abs(tol));
+    var zeroY = plotY + plotH / 2;
 
     function yToPix(v: number) {
-        return zeroY - (v / maxAbs) * (plotH / 2);
+        return zeroY - (v / plotAbs) * (plotH / 2);
     }
 
     function xToPix(v: number) {
-        return ((v - xMin) / xSpan) * plotW;
+        return plotX + ((v - xMin) / xSpan) * plotW;
+    }
+
+    function clampY(y: number) {
+        return Math.max(6, Math.min(plotH - 3, y));
     }
 
     // tolerance band
     var yTolTop = yToPix(tol);
     var yTolBottom = yToPix(-tol);
     setColor(COLORS.toleranceFill);
-    mgraphics.rectangle(0, yTolTop, plotW, yTolBottom - yTolTop);
+    mgraphics.rectangle(plotX, yTolTop, plotW, yTolBottom - yTolTop);
     mgraphics.fill();
 
-    // horizontal grid (minimal)
-    var gridVals = [-maxAbs, -tol, 0, tol, maxAbs];
+    // horizontal grid
+    var gridVals = [payloadMin, -tol, 0, tol, payloadMax];
     setColor(COLORS.grid);
     mgraphics.set_line_width(1);
     for (var gi = 0; gi < gridVals.length; gi++) {
         var gy = yToPix(gridVals[gi]);
-        mgraphics.move_to(0, gy);
-        mgraphics.line_to(plotW, gy);
+        mgraphics.move_to(plotX, gy);
+        mgraphics.line_to(plotX + plotW, gy);
         mgraphics.stroke();
     }
 
-    // vertical grid (no labels)
+    // vertical grid
     var tickStep = chooseXTickStep(graph.gridBeats, xSpan);
     var firstTick = Math.ceil(xMin / tickStep) * tickStep;
 
     setColor(COLORS.grid);
     for (var xb = firstTick; xb <= xMax + 0.0001; xb += tickStep) {
         var xp = xToPix(xb);
-        mgraphics.move_to(xp, 0);
-        mgraphics.line_to(xp, plotH);
+        mgraphics.move_to(xp, plotY);
+        mgraphics.line_to(xp, plotY + plotH);
         mgraphics.stroke();
     }
 
-    // axes
-    setColor(COLORS.axis);
-    mgraphics.set_line_width(1);
-
-    // y-axis (left edge)
-    mgraphics.move_to(0, 0);
-    mgraphics.line_to(0, plotH);
-    mgraphics.stroke();
-
-    // x-axis (zero line)
-    mgraphics.move_to(0, zeroY);
-    mgraphics.line_to(plotW, zeroY);
-    mgraphics.stroke();
-
-    // tolerance dashed lines
-    setColor(COLORS.tolerance);
-    mgraphics.set_line_width(1);
-    drawDashedHorizontal(yTolTop, 0, plotW, 3, 2);
-    drawDashedHorizontal(yTolBottom, 0, plotW, 3, 2);
-
-    // zero highlight
+    // zero line
     setColor(COLORS.zero);
     mgraphics.set_line_width(1);
-    mgraphics.move_to(0, zeroY);
-    mgraphics.line_to(plotW, zeroY);
+    mgraphics.move_to(plotX, zeroY);
+    mgraphics.line_to(plotX + plotW, zeroY);
     mgraphics.stroke();
+
+    // red dashed tolerance lines
+    var tolRed = [0.86, 0.24, 0.24, 1.0];
+    setColor(tolRed);
+    mgraphics.set_line_width(1);
+    drawDashedHorizontal(yTolTop, plotX, plotX + plotW, 4, 3);
+    drawDashedHorizontal(yTolBottom, plotX, plotX + plotW, 4, 3);
+
+    // small y axis on left
+    setColor(COLORS.axis);
+    mgraphics.set_line_width(1);
+    mgraphics.move_to(plotX, 0);
+    mgraphics.line_to(plotX, plotH);
+    mgraphics.stroke();
+
+    function drawAxisTick(v: number, label: string, color?: number[]) {
+        var y = clampY(yToPix(v));
+
+        setColor(color || COLORS.axis);
+        mgraphics.move_to(plotX - 4, y);
+        mgraphics.line_to(plotX, y);
+        mgraphics.stroke();
+
+        setColor(color || COLORS.mutedText);
+        mgraphics.move_to(2, y + 3);
+        mgraphics.show_text(label);
+    }
+
+    drawAxisTick(payloadMax, fmt(payloadMax, 2), COLORS.mutedText);
+    drawAxisTick(tol, "+" + fmt(tol, 2), tolRed);
+    drawAxisTick(-tol, "-" + fmt(tol, 2), tolRed);
+    drawAxisTick(payloadMin, fmt(payloadMin, 2), COLORS.mutedText);
 
     // bars
     var n = points.length;
