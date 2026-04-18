@@ -495,4 +495,54 @@ namespace Live {
 
         return false;
     }
+
+    export function getTrackForClip(clip: LiveAPI): LiveAPI | null {
+        try {
+            const parent = new LiveAPI(undefined, clip.path + " canonical_parent");
+            if (!parent || !parent.id || Number(parent.id) === 0) {
+                return null;
+            }
+
+            // Session clip: canonical_parent is the clip slot, so go up one more level.
+            if (parent.path.indexOf("clip_slots") !== -1) {
+                const track = new LiveAPI(undefined, parent.path + " canonical_parent");
+                if (!track || !track.id || Number(track.id) === 0) {
+                    return null;
+                }
+                return track;
+            }
+
+            // Arrangement clip: parent should already be the track-side container path.
+            // Safest fallback is to walk up until we hit a track path.
+            if (parent.path.indexOf("live_set tracks ") === 0 && parent.path.indexOf(" arrangement_clips ") === -1) {
+                return parent;
+            }
+
+            // Generic fallback: parse the track path from the parent's canonical path.
+            const m = parent.path.match(/^(live_set tracks \d+)/);
+            if (!m) {
+                return null;
+            }
+
+            const track = new LiveAPI(undefined, m[1]);
+            if (!track || !track.id || Number(track.id) === 0) {
+                return null;
+            }
+
+            return track;
+        } catch (e: any) {
+            post("getTrackForClip failed: " + String(e) + "\n");
+            return null;
+        }
+    }
+
+    export function restoreViewToOriginalTrack(): void {
+        if (State.state.originalTrackId === "" || State.state.originalClipId === "") {
+            error(`Failed to restore view because originalTrackId is ${State.state.originalTrackId} and originalClipId is ${State.state.originalClipId}`);
+            return;
+        }
+        const view = new LiveAPI(undefined, "live_set view");
+        view.set("selected_track", "id " + State.state.originalTrackId);
+        view.set("detail_clip", "id " + State.state.originalClipId);
+    }
 }

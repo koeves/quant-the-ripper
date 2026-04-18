@@ -7,6 +7,9 @@ namespace State {
         lastAfterGraph: null,
         lastClipId: "",
 
+        originalTrackId: "",
+        originalClipId: "",
+
         progressText: "",
 
         pendingRemoval: null,
@@ -288,9 +291,17 @@ namespace Quant {
 
             post(`Running with beatgrid ${gridBeats} start beat ${startBeat} tolerance beats ${toleranceBeats}`);
 
-            const clipName = Utils.toPropertyString(clip.get("name"));
+            const originalClipName = Utils.toPropertyString(clip.get("name"));
+            const originalTrack = Live.getTrackForClip(clip);
+            if (!originalTrack) {
+                error(`Failed to get track Id for clip ${clip.id} ${originalClipName}`);
+                return;
+            }
+            State.state.originalTrackId = String(originalTrack.id);
+            State.state.originalClipId = String(clip.id);
+
             const startTime = Utils.toNumber(Utils.lastValue(clip.get("start_time")));
-            const preparedTrackName = clipName + "_prepared";
+            const preparedTrackName = originalClipName + "_prepared";
             const preparedTrack = Live.getOrCreateComparisonTrack(preparedTrackName);
 
             if (!preparedTrack) {
@@ -302,8 +313,10 @@ namespace Quant {
                 clip,
                 preparedTrack,
                 startTime,
-                `${clipName}_prepared`
+                `${originalClipName}_prepared`
             );
+
+            Live.restoreViewToOriginalTrack();
 
             const result = buildAnalysisForClip(preparedClip, gridBeats, toleranceBeats, startBeat);
             if (!result) return;
@@ -316,61 +329,6 @@ namespace Quant {
             Live.removeNonAcceptedWarpMarkers(preparedClip, result.analysis);
         } catch (e: any) {
             error("analyze() failed: " + String(e) + "\n");
-        }
-    }
-
-    export function markers(): void {
-        const clip = Live.clipInfo()!;
-        Live.inspect(clip);
-        const markers = Live.getWarpMarkersFromClip(clip);
-        post(JSON.stringify(markers));
-    }
-
-    export function snap(): void {
-        try {
-            if (!State.state.initialized) {
-                error("Device not initialized yet. Trigger init first.\n");
-                return;
-            }
-
-            if (!State.state.lastAnalysis) {
-                error("No analysis available. Run analyze first.\n");
-                return;
-            }
-
-            if (!Live.selectedClipIsAnalyzed()) {
-                error("Selected clip is not an analyzed clip\n");
-                return;
-            }
-
-            const preparedClip = Live.clipInfo();
-            if (!preparedClip) {
-                error("No detail clip selected.\n");
-                return;
-            }
-
-            const analysis = State.state.lastAnalysis;
-            const quantedTrackName = analysis.clipName.replace("prepared", "quanted");
-            const quantedTrack = Live.getOrCreateComparisonTrack(quantedTrackName);
-
-            if (!quantedTrack) {
-                error("Could not create or find quanted track.\n");
-                return;
-            }
-
-            const quantedClip = Live.duplicateOriginalClipToComparisonTrack(
-                preparedClip,
-                quantedTrack,
-                analysis.startTime,
-                quantedTrackName
-            );
-
-            post("Created quanted clip at path: " + quantedClip.path + "\n");
-
-            Utils.setProgress("Starting warp marker snapping");
-            Live.snapAcceptedMarkers(quantedClip, analysis);
-        } catch (e: any) {
-            error("apply() failed: " + String(e) + "\n");
         }
     }
 
@@ -411,6 +369,52 @@ namespace Quant {
         }
     }
 
+    export function snap(): void {
+        try {
+            if (!State.state.initialized) {
+                error("Device not initialized yet. Trigger init first.\n");
+                return;
+            }
+
+            if (!State.state.lastAnalysis) {
+                error("No analysis available. Run analyze first.\n");
+                Utils.setProgress("No analysis available, please run Prep first");
+                return;
+            }
+
+            const preparedClip = new LiveAPI(undefined, "id " + State.state.lastClipId);
+            if (!preparedClip || !preparedClip.id || Number(preparedClip.id) === 0) {
+                error("Saved prepared clip could not be found.\n");
+                Utils.setProgress("Prepared clip no longer exists, please run Prep again");
+                return;
+            }
+
+            const analysis = State.state.lastAnalysis;
+            const quantedTrackName = analysis.clipName.replace("prepared", "quanted");
+            const quantedTrack = Live.getOrCreateComparisonTrack(quantedTrackName);
+
+            if (!quantedTrack) {
+                error("Could not create or find quanted track.\n");
+                return;
+            }
+
+            const quantedClip = Live.duplicateOriginalClipToComparisonTrack(
+                preparedClip,
+                quantedTrack,
+                analysis.startTime,
+                quantedTrackName
+            );
+
+            Live.restoreViewToOriginalTrack();
+
+            post("Created quanted clip at path: " + quantedClip.path + "\n");
+
+            Live.snapAcceptedMarkers(quantedClip, analysis);
+        } catch (e: any) {
+            error("apply() failed: " + String(e) + "\n");
+        }
+    }
+
     export function finishSnap(): void {
         try {
             if (!State.state.lastAnalysis) return;
@@ -445,6 +449,13 @@ namespace Quant {
                 State.state.finalizeSnapTask = null;
             }
         }
+    }
+
+    export function markers(): void {
+        const clip = Live.clipInfo()!;
+        Live.inspect(clip);
+        const markers = Live.getWarpMarkersFromClip(clip);
+        post(JSON.stringify(markers));
     }
 }
 

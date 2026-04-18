@@ -75,6 +75,9 @@ namespace Model {
         lastAfterGraph: GraphPayload | null;
         lastClipId: string;
 
+        originalTrackId: string;
+        originalClipId: string;
+
         progressText: string;
 
         pendingRemoval: {
