@@ -537,7 +537,7 @@ namespace Live {
         const pending = State.state.pendingRemoval;
         if (!pending) return;
 
-        const batchSize = 16;
+        const batchSize = 100;
         const total = pending.beats.length;
 
         let processed = 0;
@@ -631,7 +631,7 @@ namespace Live {
         const pending = State.state.pendingSnap;
         if (!pending) return;
 
-        const batchSize = 12;
+        const batchSize = 100;
         const total = pending.accepted.length;
 
         let processed = 0;
@@ -938,9 +938,9 @@ namespace Quant {
     }
 
     export function prep(
-        gridBeats: number = 4,
-        toleranceBeats: number = 0.5,
-        startBeat: number = 0
+        gridBeats: number,
+        toleranceBeats: number,
+        startBeat: number
     ): void {
         try {
             if (!State.state.initialized) {
@@ -966,13 +966,15 @@ namespace Quant {
                 return;
             }
 
+            post(`Running with beatgrid ${gridBeats} start beat ${startBeat} tolerance beats ${toleranceBeats}`);
+
             const clipName = Utils.toPropertyString(clip.get("name"));
             const startTime = Utils.toNumber(Utils.lastValue(clip.get("start_time")));
             const preparedTrackName = clipName + "_prepared";
             const preparedTrack = Live.getOrCreateComparisonTrack(preparedTrackName);
 
             if (!preparedTrack) {
-                error("Could not create or find prepared track.\n");
+                error("Could not create prepared track.\n");
                 return;
             }
 
@@ -1074,7 +1076,10 @@ namespace Quant {
             State.state.lastClipId = String(clip.id);
 
             outlet(0, "graph_json", JSON.stringify(result.graph));
-            Utils.setProgress(`Done: selected ${result.analysis.points.length} warp markers`);
+            Utils.setProgress(
+                `Done. Selected ${result.analysis.points.length} warp markers. ` +
+                `Avg drift: ${result.analysis.summary.meanAbsDriftBeats.toFixed(2)} beats / ${result.analysis.summary.meanAbsDriftMs.toFixed(2)} ms`
+            );
         } catch (e: any) {
             error("finishPrep() failed: " + String(e) + "\n");
         } finally {
@@ -1107,7 +1112,10 @@ namespace Quant {
             State.state.lastAfterGraph = result.graph;
 
             outlet(0, "graph_after_json", JSON.stringify(result.graph));
-            Utils.setProgress("Done");
+            Utils.setProgress(
+                `Done. Snapped ${result.analysis.points.length} warp markers. ` +
+                `Avg drift: ${result.analysis.summary.meanAbsDriftBeats.toFixed(2)} beats / ${result.analysis.summary.meanAbsDriftMs.toFixed(2)} ms`
+            );
         } catch (e: any) {
             error("finishSnap() failed: " + String(e) + "\n");
         } finally {
@@ -1133,9 +1141,9 @@ function clear(): void {
 }
 
 function prep(
-    gridBeats?: number,
-    toleranceBeats?: number,
-    startBeat?: number,
+    gridBeats: number,
+    toleranceBeats: number,
+    startBeat: number,
 ): void {
     Quant.prep(gridBeats, toleranceBeats, startBeat);
 }
