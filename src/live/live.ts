@@ -332,7 +332,7 @@ namespace Live {
         const pending = State.state.pendingRemoval;
         if (!pending) return;
 
-        const batchSize = 100;
+        const batchSize = 500;
         const total = pending.beats.length;
 
         let processed = 0;
