@@ -14,6 +14,8 @@ namespace Model {
         absDriftBeats: number;
         accepted: boolean;
         reason: string;
+        outlier: boolean;
+        outlierReason: string;
     }
 
     export interface AnalysisResult {
@@ -32,6 +34,7 @@ namespace Model {
             totalTargets: number;
             accepted: number;
             rejected: number;
+            outliers: number;
             uniqueMarkersUsed: number;
             minDriftBeats: number;
             maxDriftBeats: number;
@@ -48,6 +51,7 @@ namespace Model {
         yBeats: number;
         yMs: number;
         ok: boolean;
+        outlier: boolean;
     }
 
     export interface GraphPayload {
@@ -64,6 +68,7 @@ namespace Model {
         yMaxMs: number;
         accepted: number;
         rejected: number;
+        outliers: number;
         points: GraphPoint[];
     }
 

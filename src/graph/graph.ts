@@ -11,6 +11,7 @@ namespace GraphModel {
         yBeats: number;
         yMs: number;
         ok: boolean;
+        outlier: boolean;
     }
 
     export interface GraphPayload {
@@ -27,6 +28,7 @@ namespace GraphModel {
         yMaxMs: number;
         accepted: number;
         rejected: number;
+        outliers: number;
         points: GraphPoint[];
     }
 }
@@ -48,7 +50,8 @@ var COLORS = {
     text: [0.88, 0.88, 0.88, 1.0],
     mutedText: [0.65, 0.65, 0.65, 1.0],
     ok: [0.53, 0.74, 0.53, 1.0],
-    reject: [0.78, 0.42, 0.42, 0.95]
+    reject: [0.78, 0.42, 0.42, 0.95],
+    outlier: [0.93, 0.75, 0.18, 1.0]
 };
 
 function loadbang() {
@@ -242,7 +245,11 @@ function paint() {
         var x = xToPix(p.xBeat) - barW / 2;
         var y = yToPix(p.yBeats);
 
-        setColor(p.ok ? COLORS.ok : COLORS.reject);
+        if (p.outlier) {
+            setColor(COLORS.outlier);
+        } else {
+            setColor(p.ok ? COLORS.ok : COLORS.reject);
+        }
 
         var rectY = Math.min(y, zeroY);
         var rectH = Math.max(1, Math.abs(y - zeroY));

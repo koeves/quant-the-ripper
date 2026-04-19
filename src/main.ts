@@ -1,3 +1,5 @@
+post("LOADED quant.js", new Date().toISOString(), "\n");
+
 function init(): void {
     Quant.init();
 }
