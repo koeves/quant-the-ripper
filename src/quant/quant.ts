@@ -88,65 +88,93 @@ namespace Quant {
                 return;
             }
 
-            const clip = Live.clipInfo();
-            if (!clip) {
-                error("No detail clip selected.\n");
-                return;
+            if (State.state.lastAnalysis) {
+                reanalyze(gridBeats, toleranceBeats, startBeat);
+            }
+            else {
+                prepNew(gridBeats, toleranceBeats, startBeat);
             }
 
-            Live.inspect(clip);
-
-            if (!(gridBeats > 0)) {
-                error("gridBeats must be > 0\n");
-                return;
-            }
-
-            if (!(toleranceBeats >= 0)) {
-                error("toleranceBeats must be >= 0\n");
-                return;
-            }
-
-            post(`Running with beatgrid ${gridBeats} start beat ${startBeat} tolerance beats ${toleranceBeats}`);
-
-            const originalClipName = Utils.toPropertyString(clip.get("name"));
-            const originalTrack = Live.getTrackForClip(clip);
-            if (!originalTrack) {
-                error(`Failed to get track Id for clip ${clip.id} ${originalClipName}`);
-                return;
-            }
-            State.state.originalTrackId = String(originalTrack.id);
-            State.state.originalClipId = String(clip.id);
-
-            const startTime = Utils.toNumber(Utils.lastValue(clip.get("start_time")));
-            const preparedTrackName = originalClipName + "_prepared";
-            const preparedTrack = Live.getOrCreateComparisonTrack(preparedTrackName);
-
-            if (!preparedTrack) {
-                error("Could not create prepared track.\n");
-                return;
-            }
-
-            const preparedClip = Live.duplicateOriginalClipToComparisonTrack(
-                clip,
-                preparedTrack,
-                startTime,
-                `${originalClipName}_prepared`
-            );
-
-            Live.restoreViewToOriginalTrack();
-
-            const result = Analysis.buildAnalysisForClip(preparedClip, gridBeats, toleranceBeats, startBeat);
-            if (!result) return;
-
-            State.state.lastAnalysis = result.analysis;
-            State.state.lastGraph = result.graph;
-            State.state.lastClipId = String(preparedClip.id);
-
-            Utils.setProgress("Starting warp marker removal");
-            Live.removeNonAcceptedWarpMarkers(preparedClip, result.analysis);
         } catch (e: any) {
             error("analyze() failed: " + String(e) + "\n");
         }
+    }
+
+    function prepNew(
+        gridBeats: number,
+        toleranceBeats: number,
+        startBeat: number
+    ): void {
+        const clip = Live.clipInfo();
+        if (!clip) {
+            error("No detail clip selected.\n");
+            return;
+        }
+
+        Live.inspect(clip);
+
+        if (!(gridBeats > 0)) {
+            error("gridBeats must be > 0\n");
+            return;
+        }
+
+        if (!(toleranceBeats >= 0)) {
+            error("toleranceBeats must be >= 0\n");
+            return;
+        }
+
+        post(`Analyzing fresh clip with beatgrid ${gridBeats} start beat ${startBeat} tolerance beats ${toleranceBeats}\n`);
+
+        const originalClipName = Utils.toPropertyString(clip.get("name"));
+        const originalTrack = Live.getTrackForClip(clip);
+        if (!originalTrack) {
+            error(`Failed to get track Id for clip ${clip.id} ${originalClipName}`);
+            return;
+        }
+        State.state.originalTrackId = String(originalTrack.id);
+        State.state.originalClipId = String(clip.id);
+
+        const startTime = Utils.toNumber(Utils.lastValue(clip.get("start_time")));
+        const preparedTrackName = originalClipName + "_prepared";
+        const preparedTrack = Live.getOrCreateComparisonTrack(preparedTrackName);
+
+        if (!preparedTrack) {
+            error("Could not create prepared track.\n");
+            return;
+        }
+
+        const preparedClip = Live.duplicateOriginalClipToComparisonTrack(
+            clip,
+            preparedTrack,
+            startTime,
+            `${originalClipName}_prepared`
+        );
+
+        Live.restoreViewToOriginalTrack();
+
+        const result = Analysis.buildAnalysisForClip(preparedClip, gridBeats, toleranceBeats, startBeat);
+        if (!result) return;
+
+        State.state.lastAnalysis = result.analysis;
+        State.state.lastGraph = result.graph;
+        State.state.lastClipId = String(preparedClip.id);
+
+        Utils.setProgress("Starting warp marker removal");
+        Live.removeNonAcceptedWarpMarkers(preparedClip, result.analysis);
+    }
+
+    function reanalyze(
+        gridBeats: number,
+        toleranceBeats: number,
+        startBeat: number
+    ): void {
+        post(`Reanalyzing prepared clip with beatgrid ${gridBeats} start beat ${startBeat} tolerance beats ${toleranceBeats}\n`);
+        const preparedClip = new LiveAPI(undefined, "id " + State.state.lastClipId);
+        const result = Analysis.buildAnalysisForClip(preparedClip, gridBeats, toleranceBeats, startBeat);
+        if (!result) return;
+        State.state.lastAnalysis = result.analysis;
+        State.state.lastGraph = result.graph;
+        State.state.lastClipId = String(preparedClip.id);
     }
 
     export function finishPrep(): void {
