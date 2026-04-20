@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+        "target": "ES2019",
+        "strict": true,
+        "noEmitOnError": false,
+        "outFile": "plugin/graph.js",
+        "rootDir": "src",
+        "module": "none",
+        "removeComments": false,
+        "ignoreDeprecations": "6.0"
+    },
+    "include": [
+        "src/graph/graph.ts"
+    ]
+}

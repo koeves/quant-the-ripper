@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "target": "ES2021",
+        "strict": true,
+        "noEmitOnError": false,
+        "outFile": "plugin/quant.js",
+        "rootDir": "src",
+        "module": "none",
+        "removeComments": false,
+        "ignoreDeprecations": "6.0"
+    },
+    "include": [
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "src/graph/graph.ts"
+    ]
+}
