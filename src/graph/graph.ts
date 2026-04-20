@@ -67,7 +67,7 @@ function clear_graph() {
     mgraphics.redraw();
 }
 
-function left() {
+function left_graph() {
     if (!graph || outlierPointIndices.length === 0) {
         return;
     }
@@ -80,7 +80,7 @@ function left() {
     mgraphics.redraw();
 }
 
-function right() {
+function right_graph() {
     if (!graph || outlierPointIndices.length === 0) {
         return;
     }

@@ -21,6 +21,8 @@ namespace State {
         finalizeSnapClip: null,
         finalizePrepTask: null,
         finalizeSnapTask: null,
+
+        currentOutlierIndex: -1
     };
 }
 
@@ -63,6 +65,8 @@ namespace Quant {
             Live.deleteTrackByName(preparedTrackName);
             Live.deleteTrackByName(quantedTrackName);
         }
+
+        State.state.currentOutlierIndex = -1;
 
         Utils.clearProgress();
     }
@@ -269,6 +273,85 @@ namespace Quant {
         Live.inspect(clip);
         const markers = Live.getWarpMarkersFromClip(clip);
         post(JSON.stringify(markers));
+    }
+
+    export function left(): void {
+        if (!State.state.lastAnalysis) {
+            Utils.setProgress("No analysis available, run prep first");
+            return;
+        }
+
+        const outliers = Analysis.getOutlierPoints();
+        if (outliers.length === 0) {
+            State.state.currentOutlierIndex = -1;
+            Utils.setProgress("No outliers found");
+            return;
+        }
+
+        if (State.state.currentOutlierIndex < 0 || State.state.currentOutlierIndex >= outliers.length) {
+            State.state.currentOutlierIndex = 0;
+        } else if (State.state.currentOutlierIndex === 0) {
+            State.state.currentOutlierIndex = outliers.length - 1;
+        } else {
+            State.state.currentOutlierIndex--;
+        }
+
+        showCurrentOutlierProgress();
+    }
+
+    export function right(): void {
+        if (!State.state.lastAnalysis) {
+            Utils.setProgress("No analysis available");
+            return;
+        }
+
+        const outliers = Analysis.getOutlierPoints();
+        if (outliers.length === 0) {
+            State.state.currentOutlierIndex = -1;
+            Utils.setProgress("No outliers found");
+            return;
+        }
+
+        if (State.state.currentOutlierIndex < 0 || State.state.currentOutlierIndex >= outliers.length) {
+            State.state.currentOutlierIndex = 0;
+        } else if (State.state.currentOutlierIndex === outliers.length - 1) {
+            State.state.currentOutlierIndex = 0;
+        } else {
+            State.state.currentOutlierIndex++;
+        }
+
+        showCurrentOutlierProgress();
+    }
+
+    function showCurrentOutlierProgress(): void {
+        if (!State.state.lastAnalysis) return;
+        const outliers = Analysis.getOutlierPoints();
+
+        if (outliers.length === 0) {
+            State.state.currentOutlierIndex = -1;
+            Utils.setProgress("No outliers found");
+            return;
+        }
+
+        if (State.state.currentOutlierIndex < 0 || State.state.currentOutlierIndex >= outliers.length) {
+            State.state.currentOutlierIndex = 0;
+        }
+
+        const p = outliers[State.state.currentOutlierIndex];
+
+        Utils.setProgress(
+            "Outlier " +
+            (State.state.currentOutlierIndex + 1) +
+            "/" +
+            outliers.length +
+            " Reason: " +
+            p.outlierReason +
+            " | Beat: " +
+            p.targetBeat.toFixed(2) +
+            " | Drift: " +
+            p.driftMs.toFixed(2) +
+            " ms"
+        );
     }
 }
 

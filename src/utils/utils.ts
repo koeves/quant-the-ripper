@@ -63,7 +63,7 @@ namespace Utils {
 
     export function setProgress(text: string): void {
         State.state.progressText = text;
-        outlet(0, "progress_text", text.replace("\"", ""));
+        outlet(0, "progress_text", text.replaceAll("\"", ""));
     }
 
     export function clearProgress(): void {

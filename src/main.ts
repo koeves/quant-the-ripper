@@ -19,3 +19,11 @@ function prep(
 function snap(): void {
     Quant.snap();
 }
+
+function left(): void {
+    Quant.left();
+}
+
+function right(): void {
+    Quant.right();
+}

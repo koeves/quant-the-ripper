@@ -109,5 +109,7 @@ namespace Model {
         finalizeSnapClip: LiveAPI | null;
         finalizePrepTask: Task | null;
         finalizeSnapTask: Task | null;
+
+        currentOutlierIndex: number;
     }
 }

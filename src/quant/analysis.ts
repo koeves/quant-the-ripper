@@ -87,7 +87,6 @@ namespace Analysis {
 
         detectDriftOutlierBeats(points, toleranceBeats);
         const outliers = points.filter((p) => p.outlier);
-        post(`Detected outliers: ${JSON.stringify(outliers.map(p => [p.markerBeat, p.outlierReason]))}`);
 
         const acceptedPoints = points.filter((p) => p.accepted);
         const allDriftBeats = points.map((p) => p.driftBeats);
@@ -167,6 +166,11 @@ namespace Analysis {
             analysis: analysis,
             graph: graph
         };
+    }
+
+    export function getOutlierPoints(): Model.AnalysisPoint[] {
+        if (!State.state.lastAnalysis) return []
+        return State.state.lastAnalysis.points.filter(p => p.outlier);
     }
 
     function validateClipForAnalysis(clip: LiveAPI): { filePath: string } | null {
