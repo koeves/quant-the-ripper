@@ -268,18 +268,13 @@ namespace Quant {
         }
     }
 
-    export function markers(): void {
-        const clip = Live.clipInfo()!;
-        Live.inspect(clip);
-        const markers = Live.getWarpMarkersFromClip(clip);
-        post(JSON.stringify(markers));
-    }
-
     export function left(): void {
         if (!State.state.lastAnalysis) {
-            Utils.setProgress("No analysis available, run prep first");
+            Utils.setProgress("No analysis available, run Prep first");
             return;
         }
+
+        if (State.state.lastAfterAnalysis) return;
 
         const outliers = Analysis.getOutlierPoints();
         if (outliers.length === 0) {
@@ -304,6 +299,8 @@ namespace Quant {
             Utils.setProgress("No analysis available");
             return;
         }
+
+        if (State.state.lastAfterAnalysis) return;
 
         const outliers = Analysis.getOutlierPoints();
         if (outliers.length === 0) {
