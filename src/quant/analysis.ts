@@ -225,29 +225,29 @@ namespace Analysis {
                 (b < -eps && a > eps && c > eps);
 
             const isolatedFlip = sameOuterSign && currOpposite;
-            if (isolatedFlip) reasons.push("isolatedFlip")
 
             const localSpike =
                 absB > ratio * Math.max(absA, eps) &&
                 absB > ratio * Math.max(absC, eps) &&
                 absB > minJump;
-            if (localSpike) reasons.push("localSpike")
 
             const jumpFromPrev =
                 Math.abs(b - a) > ratio * Math.max(absA, eps) &&
                 Math.abs(b - a) > minJump;
-            if (jumpFromPrev) reasons.push("jumpFromPrev");
 
             const kink =
                 Math.abs(b - a) > minJump &&
                 Math.abs(c - b) > minJump &&
                 Math.abs(c - a) < minJump * 0.5;
 
+            if (isolatedFlip) reasons.push("isolated flip")
+            if (localSpike) reasons.push("local spike")
+            if (jumpFromPrev) reasons.push("jump from previous");
             if (kink) reasons.push("kink");
 
             if (isolatedFlip || localSpike || jumpFromPrev || kink) {
                 curr.outlier = true;
-                curr.outlierReason = JSON.stringify(reasons);
+                curr.outlierReason = JSON.stringify(reasons.join(", "));
             }
         }
     }

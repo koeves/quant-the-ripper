@@ -1,12 +1,8 @@
 post("LOADED quant.js", new Date().toISOString(), "\n");
 
-function init(): void {
-    Quant.init();
-}
+function init(): void { }
 
-function bang(): void {
-    Quant.bang();
-}
+function bang(): void { }
 
 function clear(): void {
     Quant.clear();

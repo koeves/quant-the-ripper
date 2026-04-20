@@ -366,7 +366,7 @@ namespace Live {
         if (State.state.finalizePrepTask) {
             State.state.finalizePrepTask.cancel();
         }
-        State.state.finalizePrepTask = new Task(Quant.finishPrep, Quant);
+        State.state.finalizePrepTask = new Task(Quant.analyze, Quant);
         State.state.finalizePrepTask.schedule(1);
     }
 

@@ -38,6 +38,8 @@ mgraphics.relative_coords = 0;
 mgraphics.autofill = 0;
 
 var graph: GraphModel.GraphPayload | null = null;
+var selectedOutlierIndex = -1;
+var outlierPointIndices: number[] = [];
 
 var COLORS = {
     bg: [0.16, 0.16, 0.16, 1.0],
@@ -60,6 +62,34 @@ function loadbang() {
 
 function clear_graph() {
     graph = null;
+    outlierPointIndices = [];
+    selectedOutlierIndex = -1;
+    mgraphics.redraw();
+}
+
+function left() {
+    if (!graph || outlierPointIndices.length === 0) {
+        return;
+    }
+
+    selectedOutlierIndex--;
+    if (selectedOutlierIndex < 0) {
+        selectedOutlierIndex = outlierPointIndices.length - 1;
+    }
+
+    mgraphics.redraw();
+}
+
+function right() {
+    if (!graph || outlierPointIndices.length === 0) {
+        return;
+    }
+
+    selectedOutlierIndex++;
+    if (selectedOutlierIndex >= outlierPointIndices.length) {
+        selectedOutlierIndex = 0;
+    }
+
     mgraphics.redraw();
 }
 
@@ -77,6 +107,13 @@ function graph_json() {
         if (graph) {
             post("graph parsed, points=" + (graph.points ? graph.points.length : -1) + "\n");
             post("yMinBeats=" + graph.yMinBeats + " yMaxBeats=" + graph.yMaxBeats + "\n");
+
+            for (var i = 0; i < graph.points.length; i++) {
+                if (graph.points[i].outlier) {
+                    outlierPointIndices.push(i);
+                }
+            }
+            selectedOutlierIndex = -1;
         }
 
         mgraphics.redraw();
@@ -150,6 +187,21 @@ function paint() {
 
     var xMin = graph.xMin;
     var xMax = graph.xMax;
+
+    if (selectedOutlierIndex >= 0 && selectedOutlierIndex < outlierPointIndices.length) {
+        var centerPoint = points[outlierPointIndices[selectedOutlierIndex]];
+        var halfWindow = Math.max(graph.gridBeats * 4, 16); // show context around outlier
+
+        xMin = Math.max(graph.xMin, centerPoint.xBeat - halfWindow);
+        xMax = Math.min(graph.xMax, centerPoint.xBeat + halfWindow);
+
+        // fallback if range collapses near boundaries
+        if (xMax - xMin < graph.gridBeats * 2) {
+            xMin = Math.max(graph.xMin, centerPoint.xBeat - graph.gridBeats * 2);
+            xMax = Math.min(graph.xMax, centerPoint.xBeat + graph.gridBeats * 2);
+        }
+    }
+
     var xSpan = Math.max(1, xMax - xMin);
 
     var zeroY = plotY + plotH / 2;
@@ -242,7 +294,22 @@ function paint() {
 
     for (var bi = 0; bi < n; bi++) {
         var p = points[bi];
-        var x = xToPix(p.xBeat) - barW / 2;
+
+        if (p.xBeat < xMin || p.xBeat > xMax) {
+            continue;
+        }
+
+        var thisBarW = barW;
+        if (
+            selectedOutlierIndex >= 0 &&
+            selectedOutlierIndex < outlierPointIndices.length &&
+            bi === outlierPointIndices[selectedOutlierIndex]
+        ) {
+            thisBarW = Math.max(barW + 2, barW * 1.5);
+        }
+
+        var x = xToPix(p.xBeat) - thisBarW / 2;
+
         var y = yToPix(p.yBeats);
 
         if (p.outlier) {
@@ -255,5 +322,23 @@ function paint() {
         var rectH = Math.max(1, Math.abs(y - zeroY));
         mgraphics.rectangle(x, rectY, barW, rectH);
         mgraphics.fill();
+    }
+
+    if (selectedOutlierIndex >= 0 && selectedOutlierIndex < outlierPointIndices.length) {
+        var sel = points[outlierPointIndices[selectedOutlierIndex]];
+
+        if (sel.xBeat >= xMin && sel.xBeat <= xMax) {
+            var sx = xToPix(sel.xBeat);
+            var sy = yToPix(sel.yBeats);
+
+            // label
+            var label = fmt(sel.xBeat, 2);
+            var labelY = Math.max(12, Math.min(plotH - 8, sy - 8));
+            var labelX = Math.max(plotX + 4, Math.min(plotX + plotW - 80, sx + 4));
+
+            setColor(COLORS.outlier);
+            mgraphics.move_to(labelX, labelY);
+            mgraphics.show_text(label);
+        }
     }
 }

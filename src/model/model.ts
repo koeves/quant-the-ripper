@@ -73,7 +73,6 @@ namespace Model {
     }
 
     export interface RuntimeState {
-        initialized: boolean;
         lastAnalysis: AnalysisResult | null;
         lastGraph: GraphPayload | null;
         lastAfterAnalysis: AnalysisResult | null;

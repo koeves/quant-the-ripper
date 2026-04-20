@@ -1,6 +1,5 @@
 namespace State {
     export const state: Model.RuntimeState = {
-        initialized: false,
         lastAnalysis: null,
         lastGraph: null,
         lastAfterAnalysis: null,
@@ -26,15 +25,6 @@ namespace State {
 }
 
 namespace Quant {
-    export function init(): void {
-        State.state.initialized = true;
-        post("initialized\n");
-    }
-
-    export function bang(): void {
-        post("ready\n");
-    }
-
     export function clear(): void {
         const analysis = State.state.lastAnalysis;
 
@@ -82,14 +72,11 @@ namespace Quant {
         toleranceBeats: number,
         startBeat: number
     ): void {
+        post("prep");
         try {
-            if (!State.state.initialized) {
-                error("Device not initialized yet. Trigger init first.\n");
-                return;
-            }
-
             if (State.state.lastAnalysis) {
-                reanalyze(gridBeats, toleranceBeats, startBeat);
+                post("analyze");
+                analyze();
             }
             else {
                 prepNew(gridBeats, toleranceBeats, startBeat);
@@ -163,26 +150,13 @@ namespace Quant {
         Live.removeNonAcceptedWarpMarkers(preparedClip, result.analysis);
     }
 
-    function reanalyze(
-        gridBeats: number,
-        toleranceBeats: number,
-        startBeat: number
-    ): void {
-        post(`Reanalyzing prepared clip with beatgrid ${gridBeats} start beat ${startBeat} tolerance beats ${toleranceBeats}\n`);
-        const preparedClip = new LiveAPI(undefined, "id " + State.state.lastClipId);
-        const result = Analysis.buildAnalysisForClip(preparedClip, gridBeats, toleranceBeats, startBeat);
-        if (!result) return;
-        State.state.lastAnalysis = result.analysis;
-        State.state.lastGraph = result.graph;
-        State.state.lastClipId = String(preparedClip.id);
-    }
-
-    export function finishPrep(): void {
+    export function analyze(): void {
         try {
             if (!State.state.lastAnalysis) return;
             if (!State.state.finalizePrepClip) return;
 
             const clip = State.state.finalizePrepClip;
+            post(`Analyzing clip ${clip.id}`);
 
             const previous = State.state.lastAnalysis;
             const result = Analysis.buildAnalysisForClip(
@@ -206,7 +180,6 @@ namespace Quant {
         } catch (e: any) {
             error("finishPrep() failed: " + String(e) + "\n");
         } finally {
-            State.state.finalizePrepClip = null;
             if (State.state.finalizePrepTask) {
                 State.state.finalizePrepTask.cancel();
                 State.state.finalizePrepTask = null;
@@ -216,11 +189,6 @@ namespace Quant {
 
     export function snap(): void {
         try {
-            if (!State.state.initialized) {
-                error("Device not initialized yet. Trigger init first.\n");
-                return;
-            }
-
             if (!State.state.lastAnalysis) {
                 error("No analysis available. Run analyze first.\n");
                 Utils.setProgress("No analysis available, please run Prep first");
