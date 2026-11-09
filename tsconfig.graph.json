@@ -2,12 +2,14 @@
     "compilerOptions": {
         "target": "ES2019",
         "strict": true,
-        "noEmitOnError": false,
+        "noEmitOnError": true,
         "outFile": "plugin/graph.js",
         "rootDir": "src",
         "module": "none",
         "removeComments": false,
-        "ignoreDeprecations": "6.0"
+        "ignoreDeprecations": "6.0",
+        "noUnusedLocals": true,
+        "noUnusedParameters": true
     },
     "include": [
         "src/graph/graph.ts"

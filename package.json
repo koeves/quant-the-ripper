@@ -1,18 +1,18 @@
 {
   "name": "quant-the-ripper",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "0.0.1",
+  "description": "Max for Live device that quantizes and warps audio with varying drift (e.g. vinyl rips)",
   "scripts": {
     "build:quant": "tsc -p tsconfig.quant.json",
     "build:graph": "tsc -p tsconfig.graph.json",
     "build": "npm run build:quant && npm run build:graph"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Daniel Koves",
+  "license": "Apache-2.0",
   "type": "commonjs",
   "devDependencies": {
     "typescript": "^6.0.2"
-  }
+  },
+  "private": true
 }
