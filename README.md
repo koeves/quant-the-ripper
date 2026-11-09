@@ -14,6 +14,15 @@ Quant the Ripper matches warp markers to a beat grid, keeps the ones that fit, a
 
 The workflow is designed for techno / 4x4 material where timing consistency matters but full-track warping is too destructive or inconsistent.
 
+### New in version 0.0.2
+- **Detect**: finds the kicks in the audio and adds them as warp markers, so no manual Insert Warp Markers is needed
+- **Drift tracking**: follows a rip that runs slightly fast or slow, even past a full beat of drift
+- **Automatic grid start**: no Start dial; the grid starts at 1.1.1 or at the first kick
+- **Snap options**: Strength (move markers part of the way) and Re-Pitch warp mode
+- **Gap navigation**: ← → also stop at grid points without a marker
+- **Tolerance in ms** and Beatgrid from 1/4 to 4 bars
+- Controls regrouped in the order you use them; Reset reliably removes the created tracks
+
 ## Controls
 Left to right, in the order you use them:
 - **Prep section**
