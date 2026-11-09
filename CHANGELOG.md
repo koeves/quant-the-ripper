@@ -8,8 +8,8 @@
 - Snap Strength: move markers part of the way to the grid.
 - Re-Pitch option (on by default): Snap sets the quanted clip to Re-Pitch warp mode.
 - Prep finds where the grid starts: 1.1.1 when the markers fit it, otherwise the first kick.
-- ← → also stop at gaps (grid points without a marker) and put the playhead where the marker should be.
-- Click a bar in the graph to jump there; click it again to zoom out.
+- ← → also stop at gaps (grid points without a marker).
+- Click a bar in the graph to show it in the status line; click it again to zoom out.
 - The graph's tolerance band follows the expected drift.
 
 ### Changed
@@ -22,7 +22,6 @@
 - `_prepared` and `_quanted` tracks are inserted next to the original track instead of at the end of the set.
 - Reset deletes the created tracks by id, so renamed tracks are still removed and unrelated tracks with the same name are left alone.
 - Snap re-analyzes the `_prepared` clip first, so manual marker edits made after the last Prep are used.
-- Left/Right move the Arrangement playhead to the selected outlier.
 - Errors (no clip selected, not an audio/Arrangement clip, Warp off, too few markers, invalid settings) are shown in the device status line, not only in the Max console.
 - Prep refuses to start from a `_prepared`/`_quanted` copy, and Prep/Snap are ignored while marker processing is still running.
 - Pending tasks are cancelled when the device is removed.

@@ -396,12 +396,4 @@ namespace Live {
         view.set("selected_track", "id " + State.state.originalTrackId);
         view.set("detail_clip", "id " + State.state.originalClipId);
     }
-
-    /** Moves the Arrangement playhead to a beat on the analyzed clip's own timeline. */
-    export function jumpToClipBeat(analysis: Model.AnalysisResult, clipBeat: number): void {
-        const songTime = analysis.startTime + (clipBeat - analysis.clipStartBeat);
-        if (!(songTime >= 0)) return;
-        const song = new LiveAPI(undefined, "live_set");
-        song.set("current_song_time", Utils.round(songTime, 6));
-    }
 }

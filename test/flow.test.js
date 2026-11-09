@@ -178,7 +178,7 @@ test("prep refuses unwarped clips", () => {
     assert.equal(live.song.tracks.length, 3);
 });
 
-test("outlier navigation wraps, matches the graph convention and moves the playhead", () => {
+test("outlier navigation wraps and matches the graph convention", () => {
     const { live, q } = setup();
     q.prep(1, TOL, 0);
     live.runTasks();
@@ -190,12 +190,9 @@ test("outlier navigation wraps, matches the graph convention and moves the playh
     // First "left" goes to the last stop, like the graph does.
     q.left();
     assert.match(progress(q), new RegExp("^" + outliers.length + "/" + outliers.length + " "));
-    const last = outliers[outliers.length - 1];
-    assert.ok(Math.abs(live.song.current_song_time - (16 + last.markerBeat)) < 1e-5);
 
     q.right();
     assert.match(progress(q), new RegExp("^1/" + outliers.length + " "));
-    assert.ok(Math.abs(live.song.current_song_time - (16 + outliers[0].markerBeat)) < 1e-5);
     assert.ok(!progress(q).includes("\""));
 });
 
@@ -365,7 +362,7 @@ test("with Re-Pitch off Snap leaves the warp mode alone", () => {
     assert.equal(live.song.tracks[3].arrangement_clips[0].warp_mode, undefined);
 });
 
-test("arrows also stop at gaps and put the playhead where the marker should be", () => {
+test("arrows also stop at gaps", () => {
     const live = createLiveSet({ tempo: 125 });
     const t = live.addTrack("Rip");
     const m = beatMarkers(64).filter((w) => w.beat_time < 30 || w.beat_time > 33);
@@ -378,16 +375,14 @@ test("arrows also stop at gaps and put the playhead where the marker should be",
 
     q.right();
     assert.match(progress(q), /^1\/1 Gap: 4 grid points without a marker from beat 30\.00/);
-    assert.ok(Math.abs(live.song.current_song_time - 38) < 1e-6);
 });
 
-test("graph click shows the point and moves the playhead", () => {
+test("graph click shows the point in the status line", () => {
     const { live, q } = setup();
     q.prep(1, TOL, 0);
     live.runTasks();
     q.goto_point(5);
     assert.match(progress(q), /^Beat 5\.00 \| kept \| Drift/);
-    assert.ok(Math.abs(live.song.current_song_time - (16 + 5 + 0.02 * Math.sin(5 / 6))) < 1e-5);
 
     q.goto_point(20);
     assert.match(progress(q), /Outlier/);
@@ -506,4 +501,23 @@ test("graph scale follows kept markers, not rejected points", () => {
     assert.equal(after.yMinBeats, 0);
     assert.equal(after.yMaxBeats, 0);
     assert.equal(after.outliers, 0);
+});
+
+test("arrows and graph clicks leave the playhead and Live's selection alone", () => {
+    // Moving the playhead from the device clears Live's clip and track selection.
+    const { live, q, clip, ripTrack } = setup();
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    live.view.selected_track = ripTrack;
+    live.view.detail_clip = clip;
+    live.song.current_song_time = 7;
+    const before = live.calls.length;
+    q.right();
+    q.left();
+    q.goto_point(5);
+    live.runTasks();
+    assert.equal(live.song.current_song_time, 7);
+    assert.equal(live.view.selected_track, ripTrack);
+    assert.equal(live.view.detail_clip, clip);
+    assert.equal(live.calls.length, before, "no Live API calls");
 });

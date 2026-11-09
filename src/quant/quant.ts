@@ -445,19 +445,6 @@ namespace Quant {
 
     // ---- Navigation ----------------------------------------------------------
 
-    /** Clip beat to put the playhead on: the marker for outliers, the expected position for gaps. */
-    function jumpBeat(p: Model.AnalysisPoint): number {
-        return p.accepted ? p.markerBeat : p.expectedBeat;
-    }
-
-    function jump(analysis: Model.AnalysisResult, p: Model.AnalysisPoint): void {
-        try {
-            Live.jumpToClipBeat(analysis, jumpBeat(p));
-        } catch (e: any) {
-            Utils.debug("jumpToClipBeat failed: " + String(e));
-        }
-    }
-
     function stepStop(direction: number): void {
         const s = State.state;
         if (!s.lastAnalysis) {
@@ -483,7 +470,6 @@ namespace Quant {
         }
 
         const p = stops[s.currentOutlierIndex];
-        jump(s.lastAnalysis, p);
         Utils.setProgress(describeStop(s.lastAnalysis, p, s.currentOutlierIndex, n));
     }
 
@@ -507,7 +493,7 @@ namespace Quant {
         stepStop(1);
     }
 
-    /** Graph click: show the clicked grid point and move the playhead to it. */
+    /** Graph click: show the clicked grid point in the status line. */
     export function gotoPoint(index: number): void {
         const s = State.state;
         const analysis = s.lastAfterAnalysis || s.lastAnalysis;
@@ -520,13 +506,11 @@ namespace Quant {
             const stop = stops.indexOf(p.index);
             if (stop >= 0) {
                 s.currentOutlierIndex = stop;
-                jump(analysis, p);
                 Utils.setProgress(describeStop(analysis, p, stop, stops.length));
                 return;
             }
         }
 
-        jump(analysis, p);
         const status = p.outlier ? "outlier" : p.accepted ? "kept" : "no marker";
         Utils.setProgress(
             "Beat " + p.targetBeat.toFixed(2) + " | " + status +

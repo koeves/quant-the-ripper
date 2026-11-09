@@ -25,7 +25,7 @@ Left to right, in the order you use them:
   - **Strength**: how far Snap moves markers toward the grid (100% = onto the grid)
   - **Re-Pitch** (on by default): Snap sets the quanted clip to Re-Pitch warp mode, which follows speed changes like a turntable
   - **Snap**, **Reset**: see below
-- **Graph**: drift per grid point (green kept, red missing, yellow outlier, grey band = tolerance around the expected drift); click a bar to jump there, click again to zoom out
+- **Graph**: drift per grid point (green kept, red missing, yellow outlier, grey band = tolerance around the expected drift); click a bar to show it in the status line, click again to zoom out
 - **← →** either side of the status line: step through outliers and gaps
 
 The grid starts at 1.1.1 when the markers fit it, otherwise at the first kick. Drift is always followed: each marker is expected where the previous markers' drift predicts.
@@ -43,7 +43,7 @@ The grid starts at 1.1.1 when the markers fit it, otherwise at the first kick. D
    - Flags outliers (isolated flips, local spikes, sudden jumps against the trend) and gaps (grid points without a marker)
 4. Review the graph and step through outliers and gaps
 ![](img/outlier.png)
-   - ← → step through outliers and gaps and move the Arrangement playhead to each one
+   - ← → step through outliers and gaps; the status line shows the beat and drift of each one
    - Make manual modifications on the _prepared clip as needed
    - Click Prep again to reanalyze the _prepared clip (manual edits are kept)
    - Changing Beatgrid, Tolerance or Detect and clicking Prep rebuilds the _prepared clip from the original

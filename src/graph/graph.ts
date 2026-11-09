@@ -211,7 +211,7 @@ function graph_json() {
     }
 }
 
-/** Click a bar to select it and move the playhead there; click it again to zoom back out. */
+/** Click a bar to select it and show it in the status line; click it again to zoom back out. */
 function onclick(x: number, _y: number) {
     if (!graph || !graph.points || graph.points.length === 0) return;
     if (x < view.plotX) return;

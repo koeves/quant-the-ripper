@@ -273,7 +273,7 @@
             {
                 "box": {
                     "activetextcolor": [ 1.0, 0.6784313725490196, 0.33725490196078434, 1.0 ],
-                    "annotation": "Jump to the previous outlier or gap and move the Arrangement playhead to it.\n\nAvailable after clicking Prep",
+                    "annotation": "Step to the previous outlier or gap; the status line shows its beat and drift.\n\nAvailable after clicking Prep",
                     "annotation_name": "Previous Outlier",
                     "automation": "←",
                     "automationon": "←",
@@ -313,7 +313,7 @@
             {
                 "box": {
                     "activetextcolor": [ 1.0, 0.6784313725490196, 0.33725490196078434, 1.0 ],
-                    "annotation": "Jump to the next outlier or gap and move the Arrangement playhead to it.\n\nAvailable after clicking Prep",
+                    "annotation": "Step to the next outlier or gap; the status line shows its beat and drift.\n\nAvailable after clicking Prep",
                     "annotation_name": "Next Outlier",
                     "automation": "→",
                     "automationon": "→",
@@ -690,7 +690,7 @@
             },
             {
                 "box": {
-                    "annotation": "Drift of each warp marker against the grid: green kept, red no marker in tolerance, yellow outlier. The grey band is the tolerance around the expected drift. Click a bar to move the playhead there; click it again to zoom out.",
+                    "annotation": "Drift of each warp marker against the grid: green kept, red no marker in tolerance, yellow outlier. The grey band is the tolerance around the expected drift. Click a bar to show it in the status line; click it again to zoom out.",
                     "border": 0,
                     "filename": "graph.js",
                     "hint": "",
