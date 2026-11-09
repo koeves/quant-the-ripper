@@ -1,7 +1,7 @@
 # Quant the Ripper
 A Max For Live device to quantize and warp audio with varying drift (e.g. vinyl rips)
 
-![](img/ripper-demo.gif)
+![](img/demo.gif)
 
 ## Overview
 Quant the Ripper matches warp markers to a beat grid, keeps the ones that fit, and snaps them onto the grid:
