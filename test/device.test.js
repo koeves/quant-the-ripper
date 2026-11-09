@@ -72,7 +72,8 @@ test("the route after quant.js matches the messages quant.js sends", () => {
     const routed = route.text.split(" ").slice(1);
     const src = fs.readFileSync(require("path").join(__dirname, "..", "src", "quant", "quant.ts"), "utf8") +
         fs.readFileSync(require("path").join(__dirname, "..", "src", "utils", "utils.ts"), "utf8");
-    const sent = [...src.matchAll(/outlet\(0, "([a-z_]+)"/g)].map((m) => m[1]);
+    const sent = [...src.matchAll(/(?:outlet\(0, |GraphDict\.send\()"([a-z_]+)"/g)].map((m) => m[1]);
+    assert.ok(sent.includes("graph_json") && sent.includes("graph_after_json"));
     for (const s of sent) assert.ok(routed.includes(s), `route does not handle "${s}"`);
 });
 

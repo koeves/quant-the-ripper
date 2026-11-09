@@ -375,16 +375,64 @@ test("graph and quant agree on the navigation stops", () => {
     q.prep(1, TOL, 0);
     live.runTasks();
 
-    const graphCtx = require("./mock-live").loadBundle("graph.js", {
-        mgraphics: new Proxy({}, { get: () => () => {}, set: () => true }),
-        box: { rect: [0, 0, 100, 100] },
-        arrayfromargs: (a) => Array.prototype.slice.call(a),
-    });
+    const graphCtx = require("./mock-live").loadGraphFor(live);
     const payload = q.__outlets.filter((o) => o[0] === "graph_json").pop()[1];
     graphCtx.graph_json(payload);
     const quantStops = Array.from(q.Analysis.getStopPoints(), (p) => p.index);
     assert.deepEqual(Array.from(graphCtx.stopIndices), quantStops);
     assert.ok(quantStops.length >= 2);
+});
+
+test("graph data goes through a dictionary, so long tracks are not cut off", () => {
+    const live = createLiveSet({ tempo: 125 });
+    const t = live.addTrack("Rip");
+    // 2000 grid points: the JSON would be ~190k characters.
+    live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: beatMarkers(2000, (i) => 0.01 * Math.sin(i / 9)) });
+    const q = loadQuant(live);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+
+    for (const o of q.__outlets) {
+        for (const a of o.slice(1)) assert.ok(String(a).length < 1000, `${o[0]} sends ${String(a).length} characters`);
+    }
+
+    const g = require("./mock-live").loadGraphFor(live);
+    const name = q.__outlets.filter((o) => o[0] === "graph_json").pop()[1];
+    g.graph_json(name);
+    assert.equal(g.graph.points.length, q.State.state.lastAnalysis.points.length);
+    const a = q.State.state.lastAnalysis.points;
+    g.graph.points.forEach((p, k) => {
+        assert.equal(p.ok, a[k].accepted);
+        assert.equal(p.outlier, a[k].outlier);
+        assert.ok(Math.abs(p.yBeats - a[k].driftBeats) < 1e-5);
+    });
+    assert.ok(g.__posts.some((m) => /received 2000 points/.test(m)));
+});
+
+test("a graph with a single point survives the dictionary round trip", () => {
+    const live = createLiveSet({ tempo: 125 });
+    const t = live.addTrack("Rip");
+    live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: beatMarkers(3) });
+    const q = loadQuant(live);
+    q.prep(4, TOL, 0);
+    live.runTasks();
+    const g = require("./mock-live").loadGraphFor(live);
+    g.graph_json(q.__outlets.filter((o) => o[0] === "graph_json").pop()[1]);
+    assert.equal(g.graph.points.length, 1);
+    assert.equal(g.graph.points[0].ok, true);
+});
+
+test("graph data still arrives if Dict.set only accepts a list as one array", () => {
+    const live = createLiveSet({ tempo: 125 });
+    live.Dict.arrayOnly = true;
+    const t = live.addTrack("Rip");
+    live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: beatMarkers(64) });
+    const q = loadQuant(live);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    const g = require("./mock-live").loadGraphFor(live);
+    g.graph_json(q.__outlets.filter((o) => o[0] === "graph_json").pop()[1]);
+    assert.equal(g.graph.points.length, 64);
 });
 
 test("Prep without Detect on a clip with only its start marker says to turn on Detect", () => {

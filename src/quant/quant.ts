@@ -346,7 +346,7 @@ namespace Quant {
             s.lastAfterGraph = null;
             s.currentOutlierIndex = -1;
 
-            outlet(0, "graph_json", JSON.stringify(result.graph));
+            GraphDict.send("graph_json", result.graph);
             const sum = result.analysis.summary;
             const hint = sum.accepted < Math.max(MIN_MARKERS, sum.totalTargets * FEW_MATCHED) && !(s.lastSettings && s.lastSettings.detectKicks)
                 ? ". Few markers matched: turn on Detect or insert warp markers"
@@ -432,7 +432,7 @@ namespace Quant {
             s.lastAfterAnalysis = result.analysis;
             s.lastAfterGraph = result.graph;
 
-            outlet(0, "graph_after_json", JSON.stringify(result.graph));
+            GraphDict.send("graph_after_json", result.graph);
             const sum = result.analysis.summary;
             const strength = State.options.strength < 1 ? ` at ${Math.round(State.options.strength * 100)}%` : "";
             Utils.setProgress(

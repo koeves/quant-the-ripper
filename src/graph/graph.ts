@@ -8,6 +8,10 @@ declare function arrayfromargs(...args: any[]): any[];
 declare var mgraphics: any;
 declare var box: any;
 declare var outlets: number;
+declare class Dict {
+    constructor(name: string);
+    get(key: string): any;
+}
 
 namespace GraphModel {
     export interface GraphPoint {
@@ -137,24 +141,73 @@ function right_graph() {
     mgraphics.redraw();
 }
 
+/** Max returns a one-element list from Dict.get as a plain value. */
+function asList(v: any): any[] {
+    if (v === null || v === undefined) return [];
+    return Object.prototype.toString.call(v) === "[object Array]" ? v : [v];
+}
+
+/** Reads the graph quant.js wrote into the named dictionary (see GraphDict in quant.js). */
+function graphFromDict(name: string): GraphModel.GraphPayload {
+    var d = new Dict(name);
+    if (Number(d.get("format")) !== 2) throw new Error("unknown graph format in dict " + name);
+    var n = Number(d.get("n")) || 0;
+    var ii = asList(d.get("i")), xs = asList(d.get("x")), ys = asList(d.get("y"));
+    var ms = asList(d.get("ms")), exp = asList(d.get("exp")), flags = asList(d.get("flags"));
+    var points: GraphModel.GraphPoint[] = [];
+    for (var k = 0; k < n; k++) {
+        var f = Number(flags[k]) || 0;
+        points.push({
+            i: Number(ii[k]),
+            xBeat: Number(xs[k]),
+            yBeats: Number(ys[k]),
+            yMs: Number(ms[k]),
+            yExp: Number(exp[k]),
+            ok: (f & 1) !== 0,
+            outlier: (f & 2) !== 0
+        });
+    }
+    return {
+        clipName: String(d.get("clipName")),
+        tempo: Number(d.get("tempo")),
+        gridBeats: Number(d.get("gridBeats")),
+        toleranceBeats: Number(d.get("toleranceBeats")),
+        toleranceMs: Number(d.get("toleranceMs")),
+        xMin: Number(d.get("xMin")),
+        xMax: Number(d.get("xMax")),
+        yMinBeats: Number(d.get("yMinBeats")),
+        yMaxBeats: Number(d.get("yMaxBeats")),
+        yMinMs: 0,
+        yMaxMs: 0,
+        accepted: Number(d.get("accepted")),
+        rejected: Number(d.get("rejected")),
+        outliers: Number(d.get("outliers")),
+        points: points
+    };
+}
+
+/**
+ * `graph_json <dict name>` from quant.js. A JSON string is still accepted
+ * (older quant.js builds), but long ones get cut by Max, hence the dictionary.
+ */
 function graph_json() {
+    var s = "";
     try {
         var args = arrayfromargs(arguments);
-        var s = "";
         for (var i = 0; i < args.length; i++) {
             if (i > 0) s += " ";
             s += String(args[i]);
         }
 
-        graph = JSON.parse(s);
+        graph = s.charAt(0) === "{" ? JSON.parse(s) : graphFromDict(s);
         stopIndices = graph && graph.points ? computeStops(graph.points) : [];
-        post("graph.js: received " + (graph && graph.points ? graph.points.length : 0) + " points (" + s.length + " chars)\n");
         selectedStop = -1;
         clickedPoint = -1;
+        post("graph.js: received " + (graph && graph.points ? graph.points.length : 0) + " points\n");
 
         mgraphics.redraw();
     } catch (e) {
-        post("graph_json failed: " + e + "\n");
+        post("graph_json failed: " + e + " (" + s.length + " chars: " + s.substring(0, 40) + ")\n");
     }
 }
 

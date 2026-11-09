@@ -230,7 +230,7 @@ namespace Analysis {
         const allMarkers = Live.getWarpMarkersFromClip(clip);
         // Drop Live's hidden trailing marker: it is not visible and cannot be moved.
         const sourceMarkers = allMarkers ? allMarkers.slice(0, -1) : null;
-        if (!sourceMarkers || sourceMarkers.length < 2) {
+        if (!sourceMarkers || sourceMarkers.length < 1) {
             Utils.fail("Not enough warp markers. Insert warp markers on the clip's transients first");
             return null;
         }

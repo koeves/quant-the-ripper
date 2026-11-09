@@ -86,12 +86,21 @@ function createLiveSet(opts = {}) {
     const dicts = new Map();
     let dictCount = 0;
 
+    // Named dictionaries are global in Max: every Dict with the same name sees the same data.
     class Dict {
         constructor(name) {
             this.name = name || "u" + (++dictCount);
-            dicts.set(this.name, {});
+            if (!dicts.has(this.name)) dicts.set(this.name, {});
         }
-        set(key, value) { dicts.get(this.name)[key] = value; }
+        // Like Max: several values make a list, one value is stored as is.
+        // With Dict.arrayOnly, extra arguments are ignored and only an array argument makes a list.
+        set(key, ...values) {
+            if (Dict.arrayOnly) values = values.slice(0, 1);
+            const v = values.length === 1 ? values[0] : values.slice();
+            dicts.get(this.name)[key] = Array.isArray(v) ? v.slice() : v;
+        }
+        get(key) { return dicts.get(this.name)[key]; }
+        clear() { dicts.set(this.name, {}); }
     }
 
     // buffer~ objects created through patcher scripting, keyed by name.
@@ -284,6 +293,16 @@ function loadBundle(file, globals) {
     return ctx;
 }
 
+/** Loads graph.js with a permissive mgraphics stub, sharing the live set's dictionaries. */
+function loadGraphFor(live) {
+    return loadBundle("graph.js", {
+        mgraphics: new Proxy({}, { get: () => () => {}, set: () => true }),
+        box: { rect: [0, 0, 400, 130] },
+        arrayfromargs: (a) => Array.prototype.slice.call(a),
+        Dict: live.Dict,
+    });
+}
+
 function loadQuant(live) {
     return loadBundle("quant.js", {
         LiveAPI: live.LiveAPI, Task: live.Task, Dict: live.Dict, Buffer: live.Buffer, patcher: live.patcher,
@@ -340,4 +359,4 @@ function synthAudio({ sampleRate = 44100, seconds, kickTimes, hatTimes = [], gho
     return { sampleRate, channels: Array.from({ length: channels }, () => mono) };
 }
 
-module.exports = { createLiveSet, loadBundle, loadQuant, beatMarkers, synthAudio };
+module.exports = { createLiveSet, loadBundle, loadQuant, loadGraphFor, beatMarkers, synthAudio };

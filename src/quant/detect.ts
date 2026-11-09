@@ -10,7 +10,9 @@ declare class Buffer {
 declare class Dict {
     constructor(name?: string);
     name: string;
-    set(key: string, value: any): void;
+    set(key: string, ...values: any[]): void;
+    get(key: string): any;
+    clear(): void;
 }
 
 /**
