@@ -84,3 +84,16 @@ test("tolerance band follows the expected drift", () => {
     ctx.paint();
     assert.ok(true);
 });
+
+test("rejected points are drawn as a fixed mark on the zero line", () => {
+    const { ctx, rects } = loadGraph();
+    const data = JSON.parse(payload([]));
+    data.points[10].ok = false;
+    data.points[10].yBeats = 3; // distance to a far marker
+    ctx.graph_json(JSON.stringify(data));
+    rects.length = 0;
+    ctx.paint();
+    const heights = rects.slice(1).map((r) => r.h);
+    assert.ok(heights.includes(7), "missing mark drawn");
+    assert.ok(Math.max(...heights) < 60, "no tall bar for the rejected point");
+});

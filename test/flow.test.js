@@ -458,3 +458,25 @@ test("status suggests Detect when only a few grid points get a marker", () => {
     live.runTasks();
     assert.match(progress(q), /Few markers matched: turn on Detect/);
 });
+
+test("graph scale follows kept markers, not rejected points", () => {
+    const live = createLiveSet({ tempo: 125 });
+    const t = live.addTrack("Rip");
+    // Small drift, plus a hole whose grid points would see a far-away marker.
+    const m = beatMarkers(64, (i) => 0.01 * Math.sin(i)).filter((w) => w.beat_time < 20 || w.beat_time > 27);
+    live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: m });
+    const q = loadQuant(live);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    const graph = q.State.state.lastGraph;
+    assert.ok(graph.rejected > 0);
+    assert.ok(Math.max(Math.abs(graph.yMinBeats), Math.abs(graph.yMaxBeats)) <= 0.011, `range ${graph.yMinBeats}..${graph.yMaxBeats}`);
+
+    // After Snap every kept marker is on the grid: the after-graph is flat.
+    q.snap();
+    live.runTasks();
+    const after = q.State.state.lastAfterGraph;
+    assert.equal(after.yMinBeats, 0);
+    assert.equal(after.yMaxBeats, 0);
+    assert.equal(after.outliers, 0);
+});

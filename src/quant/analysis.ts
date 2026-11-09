@@ -308,6 +308,8 @@ namespace Analysis {
             };
         });
 
+        const keptGraphPoints = graphPoints.filter(function (p) { return p.ok; });
+
         const graph: Model.GraphPayload = {
             clipName: clipName,
             tempo: Utils.round(tempo, 6),
@@ -316,10 +318,13 @@ namespace Analysis {
             toleranceMs: Utils.round(Live.beatsToMs(toleranceBeats, tempo), 3),
             xMin: graphPoints.length ? graphPoints[0].xBeat : 0,
             xMax: graphPoints.length ? graphPoints[graphPoints.length - 1].xBeat : 0,
-            yMinBeats: Utils.round(Utils.min(graphPoints.map(function (p) { return p.yBeats; })), 6),
-            yMaxBeats: Utils.round(Utils.max(graphPoints.map(function (p) { return p.yBeats; })), 6),
-            yMinMs: Utils.round(Utils.min(graphPoints.map(function (p) { return p.yMs; })), 3),
-            yMaxMs: Utils.round(Utils.max(graphPoints.map(function (p) { return p.yMs; })), 3),
+            // The vertical range covers kept markers only: a rejected point's
+            // "drift" is the distance to some marker outside tolerance and would
+            // dwarf the real drift.
+            yMinBeats: Utils.round(Utils.min(keptGraphPoints.map(function (p) { return p.yBeats; })), 6),
+            yMaxBeats: Utils.round(Utils.max(keptGraphPoints.map(function (p) { return p.yBeats; })), 6),
+            yMinMs: Utils.round(Utils.min(keptGraphPoints.map(function (p) { return p.yMs; })), 3),
+            yMaxMs: Utils.round(Utils.max(keptGraphPoints.map(function (p) { return p.yMs; })), 3),
             accepted: acceptedPoints.length,
             rejected: points.length - acceptedPoints.length,
             outliers: outliers.length,

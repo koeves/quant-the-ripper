@@ -292,6 +292,8 @@ function chooseXTickStep(gridBeats: number, xSpan: number) {
 }
 
 var paintFailed = false;
+/** Height in px of the mark for grid points without a marker. */
+var MISSING_MARK = 7;
 
 function paint() {
     try {
@@ -474,6 +476,16 @@ function drawGraph() {
 
         var thisBarW = bi === sel ? Math.max(barW + 2, barW * 1.5) : barW;
         var x = xToPix(p.xBeat) - thisBarW / 2;
+
+        if (!p.ok) {
+            // No marker in tolerance: a fixed red mark on the zero line. Its
+            // nearest-marker distance is not drift and would wreck the scale.
+            setColor(COLORS.reject);
+            mgraphics.rectangle(x, zeroY - MISSING_MARK / 2, thisBarW, MISSING_MARK);
+            mgraphics.fill();
+            continue;
+        }
+
         var y = yToPix(p.yBeats);
 
         if (p.outlier) {
