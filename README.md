@@ -70,7 +70,8 @@ The grid starts at 1.1.1 when the markers fit it, otherwise at the first kick. D
 - `quant.js` runs in Max's `v8` object, which needs Max 9
 
 ## Installation
-- Download it from MaxForLive: https://maxforlive.com/library/device/15084/quant-the-ripper
+- Download the `.amxd` from the [latest GitHub release](https://github.com/koeves/quant-the-ripper/releases/latest), or from MaxForLive: https://maxforlive.com/library/device/15084/quant-the-ripper
+- Drag it onto the audio track of the clip you want to quantize; it needs Max 9
 
 ## Build
 - `device/Quant the Ripper.maxpat`: patcher source, readable in diffs

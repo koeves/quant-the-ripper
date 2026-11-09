@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.0.2 - 2026-11-09
+
+Kick detection and drift tracking: Prep can now warp a fresh rip without hand-placed warp markers and follows a record that runs slightly fast or slow. Controls are regrouped in the order they are used, with Detect and Re-Pitch on by default.
 
 ### Added
 - Drift tracking: each grid point's marker is searched where the drift of the previous markers predicts, so rips that run slightly fast or slow stay matched all the way through, even past a full beat of drift. Outliers are judged against that trend.
@@ -45,6 +47,7 @@
 - Warp marker call results were never recognised as successful, so the console counts were always wrong.
 - Prep could crash when the duplicated clip could not be found.
 - Info View text of the → button said "previous outlier".
+- Reset after Prep could leave the `_prepared` track in place; if the track is not found by id it now deletes the track holding the `_prepared` clip.
 
 ### Development
 - Device is now in the repo: `device/Quant the Ripper.maxpat` (source) and `device/Quant the Ripper.amxd` (packed with `npm run device:pack`, extracted with `npm run device:unpack`).
@@ -53,6 +56,7 @@
 - Added Node test suite (`npm test`) running the compiled scripts against a mock Live API.
 - Build fails on type errors and unused code.
 - `package.json` version and licence now match the project.
+- `npm run device:inspect` checks that a frozen device embeds the current scripts; frozen release copies go in a gitignored `dist/`.
 
 ## 0.0.1
 

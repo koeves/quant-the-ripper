@@ -1,5 +1,5 @@
 /** Printed on load so the Max console shows which build Max picked up. */
-const QTR_BUILD = "0.0.2-dev";
+const QTR_BUILD = "0.0.2";
 post("Quant the Ripper quant.js " + QTR_BUILD + " loaded " + new Date().toISOString() + "\n");
 
 function init(): void { }

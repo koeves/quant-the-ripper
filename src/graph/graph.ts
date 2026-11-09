@@ -47,7 +47,7 @@ namespace GraphModel {
 outlets = 1;
 
 /** Printed on load so the Max console shows which build Max picked up. */
-var GRAPH_BUILD = "0.0.2-dev";
+var GRAPH_BUILD = "0.0.2";
 post("Quant the Ripper graph.js " + GRAPH_BUILD + " loaded\n");
 
 mgraphics.init();
