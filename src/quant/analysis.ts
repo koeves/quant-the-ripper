@@ -153,6 +153,47 @@ namespace Analysis {
      * of each run of rejected points (a gap where a marker is missing).
      * graph.js implements the same rule; keep them in sync.
      */
+    /** Markers whose positions are tried as the grid start. */
+    const START_CANDIDATES = 16;
+
+    /**
+     * Finds where the grid starts when the user did not set it: tries the
+     * position of each of the first markers (folded into the first grid
+     * interval) and keeps the one that matches the most markers. Beat 0
+     * (1.1.1) wins a near tie, so a clip whose 1.1.1 is already on the first
+     * downbeat keeps it; otherwise the earliest marker wins, which is the
+     * first kick of a freshly detected clip.
+     */
+    export function findGridStart(
+        markers: Model.WarpMarker[],
+        gridBeats: number,
+        toleranceBeats: number,
+        trackDrift: boolean = true
+    ): number {
+        if (!markers.length || !(gridBeats > 0)) return 0;
+        const score = (start: number) =>
+            matchGrid(markers, gridBeats, toleranceBeats, start, trackDrift).filter((m) => m.accepted).length;
+
+        const candidates: number[] = [0];
+        for (let i = 0; i < markers.length && i < START_CANDIDATES; i++) {
+            let c = markers[i].beat_time % gridBeats;
+            if (c < 0) c += gridBeats;
+            if (gridBeats - c <= toleranceBeats) c = 0;
+            c = Utils.round(c, 7);
+            if (!candidates.some((x) => Math.abs(x - c) <= toleranceBeats)) candidates.push(c);
+        }
+
+        const scores = candidates.map(score);
+        const best = Math.max.apply(null, scores);
+        if (best <= 0) return 0;
+        const nearTie = Math.max(best - 2, best * 0.98);
+        if (scores[0] >= nearTie) return 0;
+        for (let i = 1; i < candidates.length; i++) {
+            if (scores[i] >= nearTie) return candidates[i];
+        }
+        return 0;
+    }
+
     export function navigationStops(points: { accepted: boolean; outlier: boolean }[]): number[] {
         const stops: number[] = [];
         for (let i = 0; i < points.length; i++) {
@@ -203,11 +244,11 @@ namespace Analysis {
         return ops;
     }
 
-    export function validateParams(gridBeats: number, toleranceBeats: number, startBeat: number): string | null {
+    export function validateParams(gridBeats: number, toleranceBeats: number, startBeat: number | null): string | null {
         if (!(gridBeats > 0)) return "Grid must be greater than 0";
         if (!(toleranceBeats >= 0)) return "Tolerance must be 0 or greater";
         if (!(toleranceBeats < gridBeats / 2)) return "Tolerance must be less than half the grid";
-        if (!(startBeat >= 0)) return "Start beat must be 0 or greater";
+        if (startBeat !== null && !(startBeat >= 0)) return "Start beat must be 0 or greater";
         return null;
     }
 
@@ -215,7 +256,7 @@ namespace Analysis {
         clip: LiveAPI,
         gridBeats: number,
         toleranceBeats: number,
-        startBeat: number = 0,
+        startBeat: number | null = 0,
         trackDrift: boolean = false
     ): { analysis: Model.AnalysisResult; graph: Model.GraphPayload } | null {
         const validated = validateClipForAnalysis(clip);
@@ -237,6 +278,10 @@ namespace Analysis {
 
         Utils.debug("Parsed " + sourceMarkers.length + " source warp markers");
 
+        if (startBeat === null) {
+            startBeat = findGridStart(sourceMarkers, gridBeats, toleranceBeats, trackDrift);
+            post("Grid starts at beat " + startBeat + "\n");
+        }
         const matches = matchGrid(sourceMarkers, gridBeats, toleranceBeats, startBeat, trackDrift);
         const points: Model.AnalysisPoint[] = matches.map(function (m, idx) {
             const markerBeat = m.marker ? m.marker.beat_time : m.targetBeat;

@@ -92,7 +92,6 @@ test("option controls start at the same values as quant.js", () => {
     const byVar = (v) => boxBy((b) => b.varname === v);
     const opts = q.State.options;
     assert.equal(param(byVar("Snap Strength")).parameter_initial[0] / 100, opts.strength);
-    assert.equal(param(byVar("Track Drift")).parameter_initial[0], opts.trackDrift ? 1 : 0);
     assert.equal(param(byVar("Detect Kicks")).parameter_initial[0], opts.detectKicks ? 1 : 0);
     assert.equal(param(byVar("Re-Pitch")).parameter_initial[0], opts.repitch ? 1 : 0);
 });
@@ -104,6 +103,19 @@ test("Beatgrid choices map to 1, 2, 4, 8 and 16 beats", () => {
     const expr = boxes.get(lines.find((l) => l.source[0] === dial.id).destination[0]);
     assert.equal(expr.text, "expr 1 << $i1");
     assert.deepEqual(enumLabels.map((_, i) => 1 << i), [1, 2, 4, 8, 16]);
+});
+
+test("Detect and Re-Pitch are on by default", () => {
+    const q = loadQuant(createLiveSet());
+    assert.equal(q.State.options.detectKicks, true);
+    assert.equal(q.State.options.repitch, true);
+});
+
+test("Prep sends grid and tolerance only, so the grid start is found automatically", () => {
+    const pak = boxBy((b) => /^pak /.test(b.text || ""));
+    assert.equal(pak.text, "pak 4. 50.");
+    assert.ok(!boxBy((b) => b.varname === "live.dial[1]"), "Start dial removed");
+    assert.ok(!boxBy((b) => b.varname === "Track Drift"), "Track toggle removed");
 });
 
 test("Prep's tolerance comes from a dial in ms and the pak default matches it", () => {
@@ -141,6 +153,16 @@ test("UI objects are placed the same in patching and presentation view", () => {
         const [px, py] = b.patching_rect;
         const [qx, qy] = b.presentation_rect;
         assert.ok(Math.abs(px - qx) <= 6 && Math.abs(py - qy) <= 6, `${b.id} (${b.varname || b.maxclass}) patching ${px},${py} vs presentation ${qx},${qy}`);
+    }
+});
+
+test("no object widens the device past its background", () => {
+    // Live sizes the device to the widest object in the patching view, hidden ones included.
+    const bg = boxes.get("obj-48").presentation_rect;
+    for (const b of boxes.values()) {
+        if (b.maxclass === "fpic") continue;
+        const [x, , w] = b.patching_rect;
+        assert.ok(x + w <= bg[0] + bg[2] + 0.5, `${b.id} "${b.text || b.maxclass}" ends at x=${x + w}`);
     }
 });
 

@@ -10,8 +10,8 @@ function clear(): void {
     Quant.clear();
 }
 
-/** `prep <grid beats> <tolerance ms> <start beat>` */
-function prep(gridBeats: number, toleranceMs: number, startBeat: number): void {
+/** `prep <grid beats> <tolerance ms> [start beat]`; without a start beat the grid start is found from the markers. */
+function prep(gridBeats: number, toleranceMs: number, startBeat?: number): void {
     Quant.prep(gridBeats, toleranceMs, startBeat);
 }
 
@@ -28,10 +28,6 @@ function right(): void {
 }
 
 /** Option controls. */
-function track(on: number): void {
-    Quant.setTrackDrift(on);
-}
-
 function detect(on: number): void {
     Quant.setDetectKicks(on);
 }

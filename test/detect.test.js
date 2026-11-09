@@ -59,10 +59,9 @@ test("Prep with kick detection adds kick markers and quantizes a clip that had n
     live.view.detail_clip = clip;
     const q = loadQuant(live);
     q.Detect.resetFormat();
-    q.detect(1);
 
-    // Grid starts at the first kick (0.5 s = beat 1.0417 under the clip's warp map).
-    q.prep(1, 30, 0.5 / beat);
+    // No start beat given: the grid start is found from the markers.
+    q.prep(1, 30);
     live.runTasks();
 
     const prepared = live.song.tracks[1].arrangement_clips[0];
@@ -70,7 +69,9 @@ test("Prep with kick detection adds kick markers and quantizes a clip that had n
     assert.equal(clip.warp_markers.length, 2, "original untouched");
     const status = q.__outlets.filter((o) => o[0] === "progress_text").map((o) => o[1]);
     assert.ok(status.some((t) => /^Detecting kicks/.test(t)));
-    assert.match(status[status.length - 1], new RegExp("^Done\\. Kept " + kicks.length + "/" + kicks.length));
+    // Every kick is kept (plus Live's start marker when the grid stays on 1.1.1).
+    const kept = status[status.length - 1].match(/^Done\. Kept (\d+)\/(\d+)/);
+    assert.ok(kept && kept[1] === kept[2] && Number(kept[1]) >= kicks.length, status[status.length - 1]);
     assert.equal(live.patcher.boxes.length, 0, "temporary buffer~ removed");
 });
 

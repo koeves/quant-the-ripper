@@ -26,7 +26,8 @@ namespace Model {
     export interface PrepSettings {
         gridBeats: number;
         toleranceBeats: number;
-        startBeat: number;
+        /** Grid start in clip beats, or null to find it from the markers. */
+        startBeat: number | null;
         trackDrift: boolean;
         detectKicks: boolean;
     }
@@ -91,7 +92,6 @@ namespace Model {
 
     /** Values set by the device's option controls; kept across Reset. */
     export interface Options {
-        trackDrift: boolean;
         detectKicks: boolean;
         /** Snap strength, 0..1. */
         strength: number;

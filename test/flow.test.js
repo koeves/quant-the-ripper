@@ -3,6 +3,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createLiveSet, loadQuant, beatMarkers } = require("./mock-live");
 
+// These clips have hand-placed markers and no audio file: run Prep without kick detection.
+function manualQuant(live) {
+    const q = loadQuant(live);
+    q.detect(0);
+    return q;
+}
+
 // Tolerance is given in ms: 48 ms is 0.1 beat at 125 BPM.
 const TOL = 48;
 
@@ -23,7 +30,7 @@ function setup() {
     live.addTrack("Bass");
     live.view.detail_clip = clip;
     live.view.selected_track = ripTrack;
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     return { live, q, clip, ripTrack, kick };
 }
 
@@ -156,7 +163,7 @@ test("prep refuses to start from a _prepared copy", () => {
     live.runTasks();
 
     // Device reloaded: state is gone, user has the prepared clip selected.
-    const q2 = loadQuant(live);
+    const q2 = manualQuant(live);
     live.view.detail_clip = live.song.tracks[2].arrangement_clips[0];
     q2.prep(1, TOL, 0);
     assert.match(progress(q2), /Select the original clip/);
@@ -236,7 +243,7 @@ test("a clip whose name contains 'prepared' gets a correct _quanted name", () =>
     const t = live.addTrack("T");
     const clip = live.addClip(t, { name: "prepared mix", warp_markers: beatMarkers(16) });
     live.view.detail_clip = clip;
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     q.prep(1, TOL, 0);
     live.runTasks();
     q.snap();
@@ -278,7 +285,7 @@ function driftingClipSetup(driftPerBeat, count = 64) {
     const t = live.addTrack("Rip");
     const clip = live.addClip(t, { name: "rip", warp_markers: beatMarkers(count, (i) => i * driftPerBeat) });
     live.view.detail_clip = clip;
-    return { live, q: loadQuant(live), clip };
+    return { live, q: manualQuant(live), clip };
 }
 
 for (const [label, perBeat] of [["late", 0.03], ["early", -0.03]]) {
@@ -295,23 +302,34 @@ for (const [label, perBeat] of [["late", 0.03], ["early", -0.03]]) {
     });
 }
 
-test("drift tracking can be turned off", () => {
-    const { live, q } = driftingClipSetup(0.03);
-    q.track(0);
-    q.prep(1, TOL, 0);
+test("without a start beat the grid starts at the first kick of a fresh clip", () => {
+    // Fresh warp: Live's start marker at beat 0, kicks from beat 1.25 on.
+    const live = createLiveSet({ tempo: 125 });
+    const t = live.addTrack("Rip");
+    const kicks = beatMarkers(64, (i) => 1.25 + 0.01 * Math.sin(i / 5)).slice(0, -1);
+    const m = [{ beat_time: 0, sample_time: 0 }].concat(kicks, [{ beat_time: 70, sample_time: 33.6 }]);
+    const clip = live.addClip(t, { name: "rip", warp_markers: m });
+    live.view.detail_clip = clip;
+    const q = manualQuant(live);
+    q.prep(4, TOL);
     live.runTasks();
-    assert.doesNotMatch(progress(q), /Kept 64\/64/);
+    assert.equal(q.State.state.lastAnalysis.analysisStartBeat, 1.25);
+    assert.match(progress(q), /^Done\. Kept 16\/16 markers/);
+    q.snap();
+    live.runTasks();
+    const quanted = live.song.tracks[2].arrangement_clips[0];
+    realMarkers(quanted).forEach((w, i) => assert.ok(Math.abs(w.beat_time - (1.25 + 4 * i)) < 1e-6, `marker ${i}: ${w.beat_time}`));
 });
 
-test("changing the drift tracking option rebuilds the prepared clip", () => {
-    const { live, q } = driftingClipSetup(0.03);
-    q.prep(1, TOL, 0);
+test("re-Prep keeps the grid start it found", () => {
+    const { live, q } = setup();
+    q.prep(1, TOL);
     live.runTasks();
-    const prepared = live.song.tracks[1].arrangement_clips[0];
-    q.track(0);
-    q.prep(1, TOL, 0);
+    const prepared = live.song.tracks[2].arrangement_clips[0];
+    q.prep(1, TOL);
     live.runTasks();
-    assert.notEqual(live.song.tracks[1].arrangement_clips[0], prepared);
+    assert.equal(live.song.tracks[2].arrangement_clips[0], prepared, "not rebuilt");
+    assert.equal(q.State.state.lastAnalysis.analysisStartBeat, 0);
 });
 
 test("snap strength moves markers part of the way", () => {
@@ -326,9 +344,8 @@ test("snap strength moves markers part of the way", () => {
     assert.match(progress(q), /at 50%/);
 });
 
-test("Re-Pitch option sets the quanted clip's warp mode, not the others", () => {
+test("Re-Pitch (on by default) sets the quanted clip's warp mode, not the others", () => {
     const { live, q, clip } = setup();
-    q.repitch(1);
     q.prep(1, TOL, 0);
     live.runTasks();
     q.snap();
@@ -338,13 +355,23 @@ test("Re-Pitch option sets the quanted clip's warp mode, not the others", () => 
     assert.equal(clip.warp_mode, undefined);
 });
 
+test("with Re-Pitch off Snap leaves the warp mode alone", () => {
+    const { live, q } = setup();
+    q.repitch(0);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    q.snap();
+    live.runTasks();
+    assert.equal(live.song.tracks[3].arrangement_clips[0].warp_mode, undefined);
+});
+
 test("arrows also stop at gaps and put the playhead where the marker should be", () => {
     const live = createLiveSet({ tempo: 125 });
     const t = live.addTrack("Rip");
     const m = beatMarkers(64).filter((w) => w.beat_time < 30 || w.beat_time > 33);
     const clip = live.addClip(t, { name: "rip", start_time: 8, warp_markers: m });
     live.view.detail_clip = clip;
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     q.prep(1, TOL, 0);
     live.runTasks();
     assert.match(progress(q), /1 gaps/);
@@ -371,7 +398,7 @@ test("graph and quant agree on the navigation stops", () => {
     const t = live.addTrack("Rip");
     const m = ripMarkers().filter((w) => w.beat_time < 40 || w.beat_time > 43);
     live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: m });
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     q.prep(1, TOL, 0);
     live.runTasks();
 
@@ -388,7 +415,7 @@ test("graph data goes through a dictionary, so long tracks are not cut off", () 
     const t = live.addTrack("Rip");
     // 2000 grid points: the JSON would be ~190k characters.
     live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: beatMarkers(2000, (i) => 0.01 * Math.sin(i / 9)) });
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     q.prep(1, TOL, 0);
     live.runTasks();
 
@@ -413,7 +440,7 @@ test("a graph with a single point survives the dictionary round trip", () => {
     const live = createLiveSet({ tempo: 125 });
     const t = live.addTrack("Rip");
     live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: beatMarkers(3) });
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     q.prep(4, TOL, 0);
     live.runTasks();
     const g = require("./mock-live").loadGraphFor(live);
@@ -427,7 +454,7 @@ test("graph data still arrives if Dict.set only accepts a list as one array", ()
     live.Dict.arrayOnly = true;
     const t = live.addTrack("Rip");
     live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: beatMarkers(64) });
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     q.prep(1, TOL, 0);
     live.runTasks();
     const g = require("./mock-live").loadGraphFor(live);
@@ -441,7 +468,7 @@ test("Prep without Detect on a clip with only its start marker says to turn on D
     live.view.detail_clip = live.addClip(t, {
         name: "rip", warp_markers: [{ beat_time: 0, sample_time: 0 }, { beat_time: 400, sample_time: 192 }],
     });
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     q.prep(4, TOL, 0);
     live.runTasks();
     assert.match(progress(q), /^Only 1 warp marker on the clip\. Turn on Detect/);
@@ -453,7 +480,7 @@ test("status suggests Detect when only a few grid points get a marker", () => {
     const t = live.addTrack("Rip");
     const m = beatMarkers(400).filter((w, i) => i % 16 === 0 || w.beat_time > 399);
     live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: m });
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     q.prep(1, TOL, 0);
     live.runTasks();
     assert.match(progress(q), /Few markers matched: turn on Detect/);
@@ -465,7 +492,7 @@ test("graph scale follows kept markers, not rejected points", () => {
     // Small drift, plus a hole whose grid points would see a far-away marker.
     const m = beatMarkers(64, (i) => 0.01 * Math.sin(i)).filter((w) => w.beat_time < 20 || w.beat_time > 27);
     live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: m });
-    const q = loadQuant(live);
+    const q = manualQuant(live);
     q.prep(1, TOL, 0);
     live.runTasks();
     const graph = q.State.state.lastGraph;

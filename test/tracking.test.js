@@ -94,3 +94,26 @@ test("tiny sign flips around the trend are not outliers", () => {
     Analysis.detectDriftOutliers(pts, 0.1, true);
     assert.equal(pts.filter((p) => p.outlier).length, 0);
 });
+
+test("findGridStart keeps 1.1.1 when the markers start there", () => {
+    const m = markers(Array.from({ length: 64 }, (_, i) => i + 0.01 * Math.sin(i)));
+    assert.equal(Analysis.findGridStart(m, 4, 0.1), 0);
+});
+
+test("findGridStart keeps 1.1.1 when the kicks are within tolerance of whole beats", () => {
+    // Fresh warp: Live's start marker at 0, kicks 0.04 beat late. Staying on
+    // Live's beat grid fits as well as starting at the first kick.
+    const beats = [0].concat(Array.from({ length: 64 }, (_, i) => 1.04 + i * 1.002));
+    assert.equal(Analysis.findGridStart(markers(beats), 4, 0.1), 0);
+});
+
+test("findGridStart starts at the first kick when the kicks are off the beat grid", () => {
+    const beats = [0].concat(Array.from({ length: 64 }, (_, i) => 1.25 + i * 1.002));
+    assert.equal(Analysis.findGridStart(markers(beats), 4, 0.1), 1.25);
+});
+
+test("findGridStart skips a stray first marker", () => {
+    // A hit at 0.6 before kicks that start at 2.5.
+    const beats = [0, 0.6].concat(Array.from({ length: 40 }, (_, i) => 2.5 + i));
+    assert.equal(Analysis.findGridStart(markers(beats), 1, 0.05), 0.5);
+});

@@ -43,10 +43,9 @@ namespace State {
 
     /** Set by the option controls; not touched by Reset. */
     export const options: Model.Options = {
-        trackDrift: true,
-        detectKicks: false,
+        detectKicks: true,
         strength: 1,
-        repitch: false,
+        repitch: true,
     };
 
     export function reset(): void {
@@ -89,10 +88,6 @@ namespace Quant {
 
     // ---- Options -------------------------------------------------------------
 
-    export function setTrackDrift(on: number): void {
-        State.options.trackDrift = !!Number(on);
-    }
-
     export function setDetectKicks(on: number): void {
         State.options.detectKicks = !!Number(on);
     }
@@ -114,7 +109,7 @@ namespace Quant {
         const eps = 1e-6;
         return Math.abs(a.gridBeats - b.gridBeats) < eps &&
             Math.abs(a.toleranceBeats - b.toleranceBeats) < eps &&
-            Math.abs(a.startBeat - b.startBeat) < eps &&
+            (a.startBeat === null ? b.startBeat === null : b.startBeat !== null && Math.abs(a.startBeat - b.startBeat) < eps) &&
             a.trackDrift === b.trackDrift &&
             a.detectKicks === b.detectKicks;
     }
@@ -128,11 +123,12 @@ namespace Quant {
      * - Same clip, changed settings: rebuild the _prepared clip from the
      *   original so markers removed under the old settings come back.
      */
-    export function prep(gridBeats: number, toleranceMs: number, startBeat: number): void {
+    export function prep(gridBeats: number, toleranceMs: number, startBeatArg?: number): void {
         try {
             gridBeats = Number(gridBeats);
             toleranceMs = Number(toleranceMs);
-            startBeat = Number(startBeat) || 0;
+            // No start beat: find it from the markers.
+            const startBeat: number | null = startBeatArg === undefined || startBeatArg === null ? null : Number(startBeatArg);
 
             const msPerBeat = Live.msPerBeat(Live.getSongTempo());
             let toleranceBeats = msPerBeat > 0 ? toleranceMs / msPerBeat : NaN;
@@ -158,7 +154,7 @@ namespace Quant {
                 gridBeats: gridBeats,
                 toleranceBeats: Utils.round(toleranceBeats, 7),
                 startBeat: startBeat,
-                trackDrift: State.options.trackDrift,
+                trackDrift: true,
                 detectKicks: State.options.detectKicks,
             };
 
@@ -253,7 +249,7 @@ namespace Quant {
             }
         }
 
-        post(`Analyzing fresh clip with grid ${settings.gridBeats}, start beat ${settings.startBeat}, ` +
+        post(`Analyzing fresh clip with grid ${settings.gridBeats}, start beat ${settings.startBeat === null ? "auto" : settings.startBeat}, ` +
             `tolerance ${settings.toleranceBeats}, track drift ${settings.trackDrift}, detect kicks ${settings.detectKicks}\n`);
 
         const originalTrack = Live.getTrackForClip(clip);
