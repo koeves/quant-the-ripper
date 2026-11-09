@@ -4,51 +4,54 @@ A Max For Live device to quantize and warp audio with varying drift (e.g. vinyl 
 ![](img/ripper-demo.gif)
 
 ## Overview
-Quant the Ripper analyzes warp marker drift relative to a fixed beat grid and:
+Quant the Ripper matches warp markers to a beat grid, keeps the ones that fit, and snaps them onto the grid:
 
-* selects warp markers within tolerance closest to the target beat
+* follows slow drift (a rip running slightly fast or slow) instead of comparing against a fixed grid
+* can find the kicks in the audio itself and add them as warp markers
 * removes unneeded markers
-* detects drift outliers
-* snaps accepted markers to the grid in a second pass
+* flags drift outliers and gaps without a marker
+* snaps accepted markers to the grid, fully or part of the way
 
 The workflow is designed for techno / 4x4 material where timing consistency matters but full-track warping is too destructive or inconsistent.
 
+## Controls
+- **Start**: beat where the grid starts
+- **Beatgrid**: grid interval: 1/4, 1/2, 1 bar, 2 bars or 4 bars
+- **Tolerance**: how far (ms) a marker may be from where it is expected; limited to less than half the grid
+- **Prep / ← → / Snap / Reset**: see below
+- **Strength**: how far Snap moves markers toward the grid (100% = onto the grid)
+- **Track**: follow drift; each marker is expected where the previous markers' drift predicts (on by default)
+- **Detect**: Prep finds the kicks in the audio file and adds them as warp markers (no manual Insert Warp Markers needed)
+- **Re-Pitch**: Snap sets the quanted clip to Re-Pitch warp mode, which follows speed changes like a turntable
+- **Graph**: drift per grid point (green kept, red missing, yellow outlier, grey band = tolerance around the expected drift); click a bar to jump there, click again to zoom out
+
 ## Step-by-step
-1. Select an Arrangement audio clip
-2. Add all transients as warp markers (go to sample view, enable Warp, select the whole sample/song, right click and select Insert Warp Marker(s) / or press Cmd+I)
+1. Select an Arrangement audio clip with Warp on
+2. Either turn on **Detect**, or add all transients as warp markers (Sample view, select the whole sample, right click > Insert Warp Marker(s) / Cmd+I)
 3. Click Prep
 ![](img/prep.png)
-   - Duplicates clip to a _prepared track right below the original
-   - Finds nearest warp marker per grid point
-   - Analyzes drift:
-     ```
-     drift = markerBeat - targetBeat
-     ```
-   - Accepts markers within tolerance closest to the specified beat grid interval
-   - Detects outliers via:
-      - sign inconsistencies
-      - local spikes
-      - sudden jumps
-4. Review graph / navigate outliers 
+   - Duplicates the clip to a _prepared track right below the original
+   - With Detect on, finds the kicks and adds them as warp markers on the _prepared clip
+   - Matches one marker to each grid point, within tolerance of where it is expected
+   - Removes the markers that were not matched
+   - Flags outliers (isolated flips, local spikes, sudden jumps against the trend) and gaps (grid points without a marker)
+4. Review the graph and step through outliers and gaps
 ![](img/outlier.png)
-   - Left/right step through outliers and move the Arrangement playhead to each one
+   - ← → step through outliers and gaps and move the Arrangement playhead to each one
    - Make manual modifications on the _prepared clip as needed
    - Click Prep again to reanalyze the _prepared clip (manual edits are kept)
-   - Changing grid, tolerance or start beat and clicking Prep rebuilds the _prepared clip from the original
+   - Changing Start, Beatgrid, Tolerance, Track or Detect and clicking Prep rebuilds the _prepared clip from the original
 5. Click Snap
 ![](img/snap.png)
    - Re-reads the _prepared clip, so edits made since the last Prep are included
-   - Creates a _quanted version
-   - Snaps warp markers to the target beat
+   - Creates a _quanted version below it
+   - Moves the markers onto the grid (or part of the way, with Strength below 100%)
 6. Click Reset to delete the _prepared and _quanted tracks
 
 ## Limitations
-- Depends on Ableton's transient marker quality -> transients need to be clear enough and placed at the right spots (like downbeats)
-- Need to add all (or most) transients as warp markers beforehand, so the device has enough points to choose from -> V8 doesn't expose transients in its API, so this can't be done automatically
-- Works best with:
-   - steady BPM material
-   - clear transients (kicks)
-- Tolerance must be less than half the grid, so a marker can never be matched to two grid points
+- Kick detection looks at the low end (below about 150 Hz); it works best on four-to-the-floor material with a clear kick. Without Detect the device depends on Ableton's transient markers
+- Drift tracking follows speed changes up to 2% per beat; sudden jumps (a skip, an edit) show up as outliers or gaps
+- Kick detection and the `add_warp_marker` call it uses need Live 11 or later
 
 ## Installation
 - Download it from MaxForLive: https://maxforlive.com/library/device/15084/quant-the-ripper
@@ -80,7 +83,7 @@ Tests run the compiled scripts under Node against an in-memory mock of the Live 
 npm test
 ```
 
-Send `debug 1` to the `quant.js` object (message boxes in the patcher) to print verbose diagnostics to the Max console.
+Click the `debug 1` message box in the patcher to print verbose diagnostics to the Max console (`debug 0` turns it off).
 
 For a release, open the device in Max, Freeze it so the scripts are embedded, and save the frozen copy outside the repo for upload.
 

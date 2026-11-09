@@ -82,6 +82,52 @@ function createLiveSet(opts = {}) {
     }
 
     const calls = [];
+    const refusedMoves = [];
+    const dicts = new Map();
+    let dictCount = 0;
+
+    class Dict {
+        constructor(name) {
+            this.name = name || "u" + (++dictCount);
+            dicts.set(this.name, {});
+        }
+        set(key, value) { dicts.get(this.name)[key] = value; }
+    }
+
+    // buffer~ objects created through patcher scripting, keyed by name.
+    const audioFiles = new Map();
+    const buffers = new Map();
+    const patcher = {
+        boxes: [],
+        newdefault(_x, _y, cls, name) {
+            const boxObj = {
+                cls, name,
+                message(msg, file) {
+                    if (msg === "replace") buffers.set(name, audioFiles.get(file) || null);
+                },
+            };
+            this.boxes.push(boxObj);
+            return boxObj;
+        },
+        remove(b) {
+            this.boxes = this.boxes.filter((x) => x !== b);
+            buffers.delete(b.name);
+        },
+    };
+
+    class Buffer {
+        constructor(name) { this.name = name; }
+        get _a() { return buffers.get(this.name); }
+        framecount() { return this._a ? this._a.channels[0].length : 0; }
+        channelcount() { return this._a ? this._a.channels.length : 0; }
+        length() { return this._a ? 1000 * this.framecount() / this._a.sampleRate : 0; }
+        peek(ch, start, count) { return Array.from(this._a.channels[ch - 1].subarray(start, start + count)); }
+    }
+
+    /** Registers decoded audio for a file path: { sampleRate, channels: [Float32Array, ...] }. */
+    function addAudioFile(filePath, audio) {
+        audioFiles.set(filePath, audio);
+    }
 
     class LiveAPI {
         constructor(_cb, pathOrId) {
@@ -155,8 +201,24 @@ function createLiveSet(opts = {}) {
                 }
                 case "move_warp_marker": {
                     const beat = Number(args[0]);
-                    const w = o.warp_markers.find((x) => Math.abs(x.beat_time - beat) < 1e-6);
-                    if (w) w.beat_time = Number((w.beat_time + Number(args[1])).toFixed(7));
+                    const i = o.warp_markers.findIndex((x) => Math.abs(x.beat_time - beat) < 1e-6);
+                    if (i < 0) return ["error"];
+                    const to = Number((o.warp_markers[i].beat_time + Number(args[1])).toFixed(7));
+                    // Like Live, a marker cannot be moved onto or past a neighbour.
+                    const prev = o.warp_markers[i - 1], next = o.warp_markers[i + 1];
+                    if ((prev && to <= prev.beat_time) || (next && to >= next.beat_time)) {
+                        refusedMoves.push({ beat, to });
+                        return ["error"];
+                    }
+                    o.warp_markers[i].beat_time = to;
+                    return ["id", 0];
+                }
+                case "add_warp_marker": {
+                    // Only the "dictionary <name>" form is understood, to exercise the format probing.
+                    if (args[0] !== "dictionary") throw new Error("mock: add_warp_marker expects a dictionary");
+                    const d = dicts.get(args[1]);
+                    const m = { beat_time: Number(d.beat_time), sample_time: Number(d.sample_time) };
+                    o.warp_markers.push(m);
                     o.warp_markers.sort((a, b) => a.beat_time - b.beat_time);
                     return ["id", 0];
                 }
@@ -195,7 +257,10 @@ function createLiveSet(opts = {}) {
         return c;
     }
 
-    return { song, view, LiveAPI, Task, runTasks, addTrack, addClip, calls, canonicalPath };
+    return {
+        song, view, LiveAPI, Task, Dict, Buffer, patcher, runTasks, addTrack, addClip, addAudioFile,
+        calls, refusedMoves, canonicalPath,
+    };
 }
 
 /** Loads a compiled bundle into a fresh VM context and returns the context. */
@@ -220,7 +285,9 @@ function loadBundle(file, globals) {
 }
 
 function loadQuant(live) {
-    return loadBundle("quant.js", { LiveAPI: live.LiveAPI, Task: live.Task });
+    return loadBundle("quant.js", {
+        LiveAPI: live.LiveAPI, Task: live.Task, Dict: live.Dict, Buffer: live.Buffer, patcher: live.patcher,
+    });
 }
 
 /** Warp markers one per beat with the given drift function, plus Live's hidden trailing marker. */
@@ -229,8 +296,48 @@ function beatMarkers(count, drift = () => 0) {
     for (let i = 0; i < count; i++) {
         out.push({ beat_time: Number((i + drift(i)).toFixed(7)), sample_time: Number((i * 0.5).toFixed(7)) });
     }
-    out.push({ beat_time: count + 0.03125, sample_time: count * 0.5 + 0.015625 });
+    // Live's hidden marker always sits after the last real one.
+    const lastBeat = out.length ? out[out.length - 1].beat_time : 0;
+    out.push({ beat_time: Math.max(count, lastBeat + 1) + 0.03125, sample_time: count * 0.5 + 0.015625 });
     return out;
 }
 
-module.exports = { createLiveSet, loadBundle, loadQuant, beatMarkers };
+/**
+ * Synthetic techno-ish audio: kicks (decaying 50-60 Hz sine with a pitch drop)
+ * at `kickTimes`, plus noise-burst hats on the off-beats if `hatTimes` given.
+ */
+function synthAudio({ sampleRate = 44100, seconds, kickTimes, hatTimes = [], ghostTimes = [], channels = 2 }) {
+    const n = Math.round(seconds * sampleRate);
+    const mono = new Float32Array(n);
+    let seed = 1;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+    // Ghost hits: shorter, quieter low hits (off-beat bass/percussion).
+    for (const t0 of ghostTimes) {
+        const start = Math.round(t0 * sampleRate);
+        let phase = 0;
+        for (let i = 0; i < 0.12 * sampleRate && start + i < n; i++) {
+            const t = i / sampleRate;
+            phase += 2 * Math.PI * 70 / sampleRate;
+            mono[start + i] += 0.5 * Math.exp(-t / 0.03) * Math.sin(phase);
+        }
+    }
+    for (const t0 of kickTimes) {
+        const start = Math.round(t0 * sampleRate);
+        let phase = 0;
+        for (let i = 0; i < 0.35 * sampleRate && start + i < n; i++) {
+            const t = i / sampleRate;
+            const f = 50 + 70 * Math.exp(-t / 0.03);
+            phase += 2 * Math.PI * f / sampleRate;
+            mono[start + i] += 0.9 * Math.exp(-t / 0.12) * Math.sin(phase);
+        }
+    }
+    for (const t0 of hatTimes) {
+        const start = Math.round(t0 * sampleRate);
+        for (let i = 0; i < 0.05 * sampleRate && start + i < n; i++) {
+            mono[start + i] += 0.5 * Math.exp(-i / (0.01 * sampleRate)) * rand();
+        }
+    }
+    return { sampleRate, channels: Array.from({ length: channels }, () => mono) };
+}
+
+module.exports = { createLiveSet, loadBundle, loadQuant, beatMarkers, synthAudio };

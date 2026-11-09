@@ -3,6 +3,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createLiveSet, loadQuant, beatMarkers } = require("./mock-live");
 
+// Tolerance is given in ms: 48 ms is 0.1 beat at 125 BPM.
+const TOL = 48;
+
 // One marker per beat with slow sine drift, an off-grid transient between beats,
 // and one spike at beat 20 that should be flagged as an outlier.
 function ripMarkers() {
@@ -39,7 +42,7 @@ function realMarkers(clip) {
 
 test("prep duplicates the clip next to the original and removes unused markers", () => {
     const { live, q, clip } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
 
     assert.deepEqual(trackNames(live), ["Kick", "Rip", "rip_prepared", "Bass"]);
@@ -59,7 +62,7 @@ test("prep duplicates the clip next to the original and removes unused markers",
 
 test("snap puts accepted markers on the grid in a _quanted copy", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     q.snap();
     live.runTasks();
@@ -78,7 +81,7 @@ test("snap puts accepted markers on the grid in a _quanted copy", () => {
 
 test("snap uses manual edits made on the prepared clip since the last prep", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
 
     const prepared = live.song.tracks[2].arrangement_clips[0];
@@ -94,12 +97,12 @@ test("snap uses manual edits made on the prepared clip since the last prep", () 
 
 test("re-prep with the same settings keeps manual edits", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     const prepared = live.song.tracks[2].arrangement_clips[0];
     prepared.warp_markers = prepared.warp_markers.filter((w) => Math.round(w.beat_time) !== 7);
 
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     assert.equal(live.song.tracks.length, 4);
     assert.equal(live.song.tracks[2].arrangement_clips[0], prepared);
@@ -108,12 +111,12 @@ test("re-prep with the same settings keeps manual edits", () => {
 
 test("re-prep with changed settings rebuilds the prepared clip from the original", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     q.snap();
     live.runTasks();
 
-    q.prep(2, 0.1, 0);
+    q.prep(2, TOL, 0);
     live.runTasks();
     assert.deepEqual(trackNames(live), ["Kick", "Rip", "rip_prepared", "Bass"]);
     const prepared = live.song.tracks[2].arrangement_clips[0];
@@ -123,16 +126,24 @@ test("re-prep with changed settings rebuilds the prepared clip from the original
 
 test("invalid settings are reported in the device status line", () => {
     const { live, q } = setup();
-    q.prep(1, 0.6, 0);
-    assert.match(progress(q), /half the grid/);
+    q.prep(0, TOL, 0);
+    assert.match(progress(q), /Grid must be greater than 0/);
     assert.equal(live.song.tracks.length, 3);
+});
+
+test("tolerance of half the grid or more is limited and reported", () => {
+    const { live, q } = setup();
+    q.prep(1, 400, 0);
+    live.runTasks();
+    assert.match(progress(q), /tolerance limited to 216 ms/);
+    assert.equal(q.State.state.lastAnalysis.toleranceBeats, 0.45);
 });
 
 test("errors are shown in the status line, not only the Max console", () => {
     const { live, q } = setup();
     live.view.detail_clip = null;
     live.view.selected_track = null;
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     assert.match(progress(q), /No clip selected/);
 
     q.snap();
@@ -141,13 +152,13 @@ test("errors are shown in the status line, not only the Max console", () => {
 
 test("prep refuses to start from a _prepared copy", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
 
     // Device reloaded: state is gone, user has the prepared clip selected.
     const q2 = loadQuant(live);
     live.view.detail_clip = live.song.tracks[2].arrangement_clips[0];
-    q2.prep(1, 0.1, 0);
+    q2.prep(1, TOL, 0);
     assert.match(progress(q2), /Select the original clip/);
     assert.equal(live.song.tracks.length, 4);
 });
@@ -155,35 +166,35 @@ test("prep refuses to start from a _prepared copy", () => {
 test("prep refuses unwarped clips", () => {
     const { live, q, clip } = setup();
     clip.warping = 0;
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     assert.match(progress(q), /Warp is off/);
     assert.equal(live.song.tracks.length, 3);
 });
 
 test("outlier navigation wraps, matches the graph convention and moves the playhead", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
 
-    const outliers = q.Analysis.getOutlierPoints();
+    const outliers = q.Analysis.getStopPoints();
     assert.ok(outliers.length >= 1);
-    assert.ok(outliers.some((p) => p.targetBeat === 20));
+    assert.ok(outliers.some((p) => p.targetBeat === 20 && p.outlier));
 
-    // First "left" goes to the last outlier, like the graph does.
+    // First "left" goes to the last stop, like the graph does.
     q.left();
-    assert.match(progress(q), new RegExp("^Outlier " + outliers.length + "/" + outliers.length));
+    assert.match(progress(q), new RegExp("^" + outliers.length + "/" + outliers.length + " "));
     const last = outliers[outliers.length - 1];
     assert.ok(Math.abs(live.song.current_song_time - (16 + last.markerBeat)) < 1e-5);
 
     q.right();
-    assert.match(progress(q), new RegExp("^Outlier 1/" + outliers.length));
+    assert.match(progress(q), new RegExp("^1/" + outliers.length + " "));
     assert.ok(Math.abs(live.song.current_song_time - (16 + outliers[0].markerBeat)) < 1e-5);
     assert.ok(!progress(q).includes("\""));
 });
 
 test("navigation works again after re-prep following a snap", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     q.snap();
     live.runTasks();
@@ -192,15 +203,15 @@ test("navigation works again after re-prep following a snap", () => {
     q.right();
     assert.equal(progress(q), before, "navigation is disabled after snap");
 
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     q.right();
-    assert.match(progress(q), /^Outlier 1\//);
+    assert.match(progress(q), /^1\/\d+ /);
 });
 
 test("clear deletes the created tracks by id, even after renaming", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     q.snap();
     live.runTasks();
@@ -214,7 +225,7 @@ test("clear deletes the created tracks by id, even after renaming", () => {
 test("clear does not delete a user track that shares the generated name", () => {
     const { live, q } = setup();
     live.addTrack("other_prepared");
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     q.clear();
     assert.deepEqual(trackNames(live), ["Kick", "Rip", "Bass", "other_prepared"]);
@@ -226,7 +237,7 @@ test("a clip whose name contains 'prepared' gets a correct _quanted name", () =>
     const clip = live.addClip(t, { name: "prepared mix", warp_markers: beatMarkers(16) });
     live.view.detail_clip = clip;
     const q = loadQuant(live);
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     q.snap();
     live.runTasks();
@@ -235,20 +246,20 @@ test("a clip whose name contains 'prepared' gets a correct _quanted name", () =>
 
 test("selecting a different clip starts a new session and keeps old tracks", () => {
     const { live, q, kick } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
 
     const other = live.addClip(kick, { name: "kick", warp_markers: beatMarkers(16) });
     live.view.detail_clip = other;
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     live.runTasks();
     assert.deepEqual(trackNames(live), ["Kick", "kick_prepared", "Rip", "rip_prepared", "Bass"]);
 });
 
 test("prep while marker removal is running is ignored", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
+    q.prep(1, TOL, 0);
     assert.match(progress(q), /Still working/);
     live.runTasks();
     assert.equal(live.song.tracks.length, 4);
@@ -256,8 +267,146 @@ test("prep while marker removal is running is ignored", () => {
 
 test("notifydeleted cancels pending work", () => {
     const { live, q } = setup();
-    q.prep(1, 0.1, 0);
+    q.prep(1, TOL, 0);
     q.notifydeleted();
     live.runTasks();
     assert.ok(!q.__outlets.some((o) => o[0] === "graph_json"));
+});
+
+function driftingClipSetup(driftPerBeat, count = 64) {
+    const live = createLiveSet({ tempo: 125 });
+    const t = live.addTrack("Rip");
+    const clip = live.addClip(t, { name: "rip", warp_markers: beatMarkers(count, (i) => i * driftPerBeat) });
+    live.view.detail_clip = clip;
+    return { live, q: loadQuant(live), clip };
+}
+
+for (const [label, perBeat] of [["late", 0.03], ["early", -0.03]]) {
+    test(`snap lands every marker on the grid when the rip runs ${label} by more than a beat`, () => {
+        const { live, q } = driftingClipSetup(perBeat);
+        q.prep(1, TOL, 0);
+        live.runTasks();
+        assert.match(progress(q), /Kept 64\/64 markers, 0 outliers, 0 gaps/);
+        q.snap();
+        live.runTasks();
+        assert.deepEqual(live.refusedMoves, [], "no move crossed a neighbour");
+        const quanted = live.song.tracks[2].arrangement_clips[0];
+        realMarkers(quanted).forEach((w, i) => assert.equal(w.beat_time, i));
+    });
+}
+
+test("drift tracking can be turned off", () => {
+    const { live, q } = driftingClipSetup(0.03);
+    q.track(0);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    assert.doesNotMatch(progress(q), /Kept 64\/64/);
+});
+
+test("changing the drift tracking option rebuilds the prepared clip", () => {
+    const { live, q } = driftingClipSetup(0.03);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    const prepared = live.song.tracks[1].arrangement_clips[0];
+    q.track(0);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    assert.notEqual(live.song.tracks[1].arrangement_clips[0], prepared);
+});
+
+test("snap strength moves markers part of the way", () => {
+    const { live, q } = driftingClipSetup(0.002);
+    q.strength(50);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    q.snap();
+    live.runTasks();
+    const quanted = live.song.tracks[2].arrangement_clips[0];
+    realMarkers(quanted).forEach((w, i) => assert.ok(Math.abs(w.beat_time - (i + i * 0.001)) < 1e-6, `marker ${i}: ${w.beat_time}`));
+    assert.match(progress(q), /at 50%/);
+});
+
+test("Re-Pitch option sets the quanted clip's warp mode, not the others", () => {
+    const { live, q, clip } = setup();
+    q.repitch(1);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    q.snap();
+    live.runTasks();
+    assert.equal(live.song.tracks[3].arrangement_clips[0].warp_mode, 3);
+    assert.equal(live.song.tracks[2].arrangement_clips[0].warp_mode, undefined);
+    assert.equal(clip.warp_mode, undefined);
+});
+
+test("arrows also stop at gaps and put the playhead where the marker should be", () => {
+    const live = createLiveSet({ tempo: 125 });
+    const t = live.addTrack("Rip");
+    const m = beatMarkers(64).filter((w) => w.beat_time < 30 || w.beat_time > 33);
+    const clip = live.addClip(t, { name: "rip", start_time: 8, warp_markers: m });
+    live.view.detail_clip = clip;
+    const q = loadQuant(live);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    assert.match(progress(q), /1 gaps/);
+
+    q.right();
+    assert.match(progress(q), /^1\/1 Gap: 4 grid points without a marker from beat 30\.00/);
+    assert.ok(Math.abs(live.song.current_song_time - 38) < 1e-6);
+});
+
+test("graph click shows the point and moves the playhead", () => {
+    const { live, q } = setup();
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    q.goto_point(5);
+    assert.match(progress(q), /^Beat 5\.00 \| kept \| Drift/);
+    assert.ok(Math.abs(live.song.current_song_time - (16 + 5 + 0.02 * Math.sin(5 / 6))) < 1e-5);
+
+    q.goto_point(20);
+    assert.match(progress(q), /Outlier/);
+});
+
+test("graph and quant agree on the navigation stops", () => {
+    const live = createLiveSet({ tempo: 125 });
+    const t = live.addTrack("Rip");
+    const m = ripMarkers().filter((w) => w.beat_time < 40 || w.beat_time > 43);
+    live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: m });
+    const q = loadQuant(live);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+
+    const graphCtx = require("./mock-live").loadBundle("graph.js", {
+        mgraphics: new Proxy({}, { get: () => () => {}, set: () => true }),
+        box: { rect: [0, 0, 100, 100] },
+        arrayfromargs: (a) => Array.prototype.slice.call(a),
+    });
+    const payload = q.__outlets.filter((o) => o[0] === "graph_json").pop()[1];
+    graphCtx.graph_json(payload);
+    const quantStops = Array.from(q.Analysis.getStopPoints(), (p) => p.index);
+    assert.deepEqual(Array.from(graphCtx.stopIndices), quantStops);
+    assert.ok(quantStops.length >= 2);
+});
+
+test("Prep without Detect on a clip with only its start marker says to turn on Detect", () => {
+    const live = createLiveSet({ tempo: 125 });
+    const t = live.addTrack("Rip");
+    live.view.detail_clip = live.addClip(t, {
+        name: "rip", warp_markers: [{ beat_time: 0, sample_time: 0 }, { beat_time: 400, sample_time: 192 }],
+    });
+    const q = loadQuant(live);
+    q.prep(4, TOL, 0);
+    live.runTasks();
+    assert.match(progress(q), /^Only 1 warp marker on the clip\. Turn on Detect/);
+    assert.equal(live.song.tracks.length, 1, "no tracks created");
+});
+
+test("status suggests Detect when only a few grid points get a marker", () => {
+    const live = createLiveSet({ tempo: 125 });
+    const t = live.addTrack("Rip");
+    const m = beatMarkers(400).filter((w, i) => i % 16 === 0 || w.beat_time > 399);
+    live.view.detail_clip = live.addClip(t, { name: "rip", warp_markers: m });
+    const q = loadQuant(live);
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    assert.match(progress(q), /Few markers matched: turn on Detect/);
 });

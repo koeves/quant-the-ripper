@@ -67,6 +67,195 @@
 			}
 , 			{
 				"box" : 				{
+					"annotation" : "How far Snap moves each marker toward the grid. 100% puts it on the grid; lower values keep part of the original timing.",
+					"annotation_name" : "Strength",
+					"hint" : "",
+					"id" : "obj-110",
+					"maxclass" : "live.dial",
+					"numinlets" : 1,
+					"numoutlets" : 2,
+					"outlettype" : [ "", "float" ],
+					"panelcolor" : [ 0.011764705882353, 0.764705882352941, 0.835294117647059, 1.0 ],
+					"parameter_enable" : 1,
+					"patching_rect" : [ 882.0, 8.0, 44.0, 48.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 882.0, 8.0, 44.0, 48.0 ],
+					"saved_attribute_attributes" : 					{
+						"panelcolor" : 						{
+							"expression" : "themecolor.live_value_arc"
+						}
+,
+						"textcolor" : 						{
+							"expression" : "themecolor.live_selection"
+						}
+,
+						"valueof" : 						{
+							"parameter_annotation_name" : "Strength",
+							"parameter_info" : "How far Snap moves each marker toward the grid. 100% puts it on the grid; lower values keep part of the original timing.",
+							"parameter_initial" : [ 100.0 ],
+							"parameter_initial_enable" : 1,
+							"parameter_longname" : "Snap Strength",
+							"parameter_mmax" : 100.0,
+							"parameter_modmode" : 4,
+							"parameter_shortname" : "Strength",
+							"parameter_type" : 0,
+							"parameter_unitstyle" : 5
+
+						}
+
+					}
+,
+					"textcolor" : [ 0.690196078431373, 0.866666666666667, 0.92156862745098, 1.0 ],
+					"varname" : "Snap Strength"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"annotation" : "Follow slow drift: each marker is expected where the drift of the previous markers predicts, instead of exactly on the grid. Keeps a rip that runs slightly fast or slow matched all the way through.",
+					"annotation_name" : "Track Drift",
+					"appearance" : 2,
+					"automation" : "Track off",
+					"automationon" : "Track on",
+					"fontname" : "Ableton Sans",
+					"fontsize" : 10.0,
+					"hint" : "",
+					"id" : "obj-111",
+					"lcdcolor" : [ 1.0, 0.301960784313725, 0.27843137254902, 1.0 ],
+					"maxclass" : "live.text",
+					"mode" : 1,
+					"numinlets" : 1,
+					"numoutlets" : 2,
+					"outlettype" : [ "", "" ],
+					"parameter_enable" : 1,
+					"patching_rect" : [ 856.0, 66.0, 96.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 856.0, 66.0, 96.0, 20.0 ],
+					"saved_attribute_attributes" : 					{
+						"lcdcolor" : 						{
+							"expression" : "themecolor.live_active_automation"
+						}
+,
+						"valueof" : 						{
+							"parameter_annotation_name" : "Track Drift",
+							"parameter_enum" : [ "off", "on" ],
+							"parameter_info" : "Follow slow drift: each marker is expected where the drift of the previous markers predicts, instead of exactly on the grid. Keeps a rip that runs slightly fast or slow matched all the way through.",
+							"parameter_initial" : [ 1 ],
+							"parameter_initial_enable" : 1,
+							"parameter_longname" : "Track Drift",
+							"parameter_mmax" : 1,
+							"parameter_modmode" : 0,
+							"parameter_shortname" : "Track",
+							"parameter_type" : 2
+
+						}
+
+					}
+,
+					"text" : "Track",
+					"texton" : "Track",
+					"varname" : "Track Drift"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"annotation" : "Prep finds the kicks in the audio file and adds them as warp markers, so you do not have to insert warp markers by hand first.",
+					"annotation_name" : "Detect Kicks",
+					"appearance" : 2,
+					"automation" : "Detect off",
+					"automationon" : "Detect on",
+					"fontname" : "Ableton Sans",
+					"fontsize" : 10.0,
+					"hint" : "",
+					"id" : "obj-112",
+					"lcdcolor" : [ 1.0, 0.301960784313725, 0.27843137254902, 1.0 ],
+					"maxclass" : "live.text",
+					"mode" : 1,
+					"numinlets" : 1,
+					"numoutlets" : 2,
+					"outlettype" : [ "", "" ],
+					"parameter_enable" : 1,
+					"patching_rect" : [ 856.0, 92.0, 96.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 856.0, 92.0, 96.0, 20.0 ],
+					"saved_attribute_attributes" : 					{
+						"lcdcolor" : 						{
+							"expression" : "themecolor.live_active_automation"
+						}
+,
+						"valueof" : 						{
+							"parameter_annotation_name" : "Detect Kicks",
+							"parameter_enum" : [ "off", "on" ],
+							"parameter_info" : "Prep finds the kicks in the audio file and adds them as warp markers, so you do not have to insert warp markers by hand first.",
+							"parameter_initial" : [ 0 ],
+							"parameter_initial_enable" : 1,
+							"parameter_longname" : "Detect Kicks",
+							"parameter_mmax" : 1,
+							"parameter_modmode" : 0,
+							"parameter_shortname" : "Detect",
+							"parameter_type" : 2
+
+						}
+
+					}
+,
+					"text" : "Detect",
+					"texton" : "Detect",
+					"varname" : "Detect Kicks"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"annotation" : "Snap sets the quanted clip to Re-Pitch warp mode, which follows speed changes like a turntable instead of time-stretching.",
+					"annotation_name" : "Re-Pitch",
+					"appearance" : 2,
+					"automation" : "Re-Pitch off",
+					"automationon" : "Re-Pitch on",
+					"fontname" : "Ableton Sans",
+					"fontsize" : 10.0,
+					"hint" : "",
+					"id" : "obj-113",
+					"lcdcolor" : [ 1.0, 0.301960784313725, 0.27843137254902, 1.0 ],
+					"maxclass" : "live.text",
+					"mode" : 1,
+					"numinlets" : 1,
+					"numoutlets" : 2,
+					"outlettype" : [ "", "" ],
+					"parameter_enable" : 1,
+					"patching_rect" : [ 856.0, 118.0, 96.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 856.0, 118.0, 96.0, 20.0 ],
+					"saved_attribute_attributes" : 					{
+						"lcdcolor" : 						{
+							"expression" : "themecolor.live_active_automation"
+						}
+,
+						"valueof" : 						{
+							"parameter_annotation_name" : "Re-Pitch",
+							"parameter_enum" : [ "off", "on" ],
+							"parameter_info" : "Snap sets the quanted clip to Re-Pitch warp mode, which follows speed changes like a turntable instead of time-stretching.",
+							"parameter_initial" : [ 0 ],
+							"parameter_initial_enable" : 1,
+							"parameter_longname" : "Re-Pitch",
+							"parameter_mmax" : 1,
+							"parameter_modmode" : 0,
+							"parameter_shortname" : "Re-Pitch",
+							"parameter_type" : 2
+
+						}
+
+					}
+,
+					"text" : "Re-Pitch",
+					"texton" : "Re-Pitch",
+					"varname" : "Re-Pitch"
+				}
+
+			}
+, 			{
+				"box" : 				{
 					"annotation" : "Shows current device progress and result summaries, such as marker removal, snapping progress, and final average drift in beats and milliseconds.",
 					"bgcolor" : [ 0.215686274509804, 0.215686274509804, 0.215686274509804, 0.0 ],
 					"bordercolor" : [ 0.192156862745098, 0.192156862745098, 0.192156862745098, 0.0 ],
@@ -102,7 +291,7 @@
 , 			{
 				"box" : 				{
 					"activetextcolor" : [ 1.0, 0.67843137254902, 0.337254901960784, 1.0 ],
-					"annotation" : "Jump to the previous outlier and move the Arrangement playhead to it.\n\nAvailable after clicking Prep",
+					"annotation" : "Jump to the previous outlier or gap and move the Arrangement playhead to it.\n\nAvailable after clicking Prep",
 					"annotation_name" : "Previous Outlier",
 					"automation" : "←",
 					"automationon" : "←",
@@ -148,7 +337,7 @@
 , 			{
 				"box" : 				{
 					"activetextcolor" : [ 1.0, 0.67843137254902, 0.337254901960784, 1.0 ],
-					"annotation" : "Jump to the next outlier and move the Arrangement playhead to it.\n\nAvailable after clicking Prep",
+					"annotation" : "Jump to the next outlier or gap and move the Arrangement playhead to it.\n\nAvailable after clicking Prep",
 					"annotation_name" : "Next Outlier",
 					"automation" : "→",
 					"automationon" : "→",
@@ -351,7 +540,7 @@
 			}
 , 			{
 				"box" : 				{
-					"annotation" : "Sets the maximum allowed distance, in beats, between a target beat and the nearest warp marker for that marker to be accepted. Lower values are stricter; higher values accept markers farther away from the grid.\n\nMust be less than half the Beatgrid.",
+					"annotation" : "Maximum distance between a warp marker and where it is expected on the grid for the marker to be kept. With Track on, the expected position follows the drift of the previous markers. Lower is stricter.\n\nLimited to less than half the Beatgrid.",
 					"annotation_name" : "Tolerance",
 					"hint" : "",
 					"id" : "obj-15",
@@ -375,17 +564,18 @@
 ,
 						"valueof" : 						{
 							"parameter_annotation_name" : "Tolerance",
-							"parameter_info" : "Sets the maximum allowed distance, in beats, between a target beat and the nearest warp marker for that marker to be accepted. Lower values are stricter; higher values accept markers farther away from the grid.\n",
-							"parameter_initial" : [ 0.1 ],
+							"parameter_exponent" : 2.0,
+							"parameter_info" : "Maximum distance between a warp marker and where it is expected on the grid for the marker to be kept. With Track on, the expected position follows the drift of the previous markers. Lower is stricter.\n\nLimited to less than half the Beatgrid.",
+							"parameter_initial" : [ 50.0 ],
 							"parameter_initial_enable" : 1,
 							"parameter_longname" : "live.dial[2]",
-							"parameter_mmax" : 1.0,
-							"parameter_mmin" : 0.1,
+							"parameter_mmax" : 200.0,
+							"parameter_mmin" : 5.0,
 							"parameter_modmode" : 4,
 							"parameter_shortname" : "Tolerance",
-							"parameter_steps" : 10,
 							"parameter_type" : 0,
-							"parameter_unitstyle" : 1
+							"parameter_unitstyle" : 2
+
 						}
 
 					}
@@ -447,7 +637,7 @@
 			}
 , 			{
 				"box" : 				{
-					"annotation" : "Sets the interval, in beats, between target analysis points. For example, a value of 4 analyzes every bar in 4/4, while 8 analyzes every two bars. ",
+					"annotation" : "Distance between the grid points markers are matched to and snapped onto: 1/4 (every beat), 1/2, 1 bar, 2 bars or 4 bars (in 4/4).",
 					"annotation_name" : "Beatgrid Interval",
 					"hint" : "",
 					"id" : "obj-11",
@@ -471,18 +661,16 @@
 ,
 						"valueof" : 						{
 							"parameter_annotation_name" : "Beatgrid Interval",
-							"parameter_enum" : [ "3/4", "4/4", "5/4", "7/4" ],
-							"parameter_info" : "Sets the interval, in beats, between target analysis points. For example, a value of 4 analyzes every bar in 4/4, while 8 analyzes every two bars. ",
-							"parameter_initial" : [ 4 ],
+							"parameter_enum" : [ "1/4", "1/2", "1 bar", "2 bars", "4 bars" ],
+							"parameter_info" : "Distance between the grid points markers are matched to and snapped onto: 1/4 (every beat), 1/2, 1 bar, 2 bars or 4 bars (in 4/4).",
+							"parameter_initial" : [ 2 ],
 							"parameter_initial_enable" : 1,
 							"parameter_longname" : "live.dial",
-							"parameter_mmax" : 10.0,
-							"parameter_mmin" : 1.0,
+							"parameter_mmax" : 4.0,
 							"parameter_modmode" : 0,
 							"parameter_shortname" : "Beatgrid",
-							"parameter_steps" : 15,
-							"parameter_type" : 1,
-							"parameter_unitstyle" : 9
+							"parameter_type" : 2
+
 						}
 
 					}
@@ -664,7 +852,7 @@
 			}
 , 			{
 				"box" : 				{
-					"annotation" : "Displays the drift of detected warp markers relative to the target beatgrid across the clip. The horizontal axis shows target beat positions, while the vertical position shows drift amount. This lets you see where the selected markers are early or late and how consistent the drift is before and after snapping.",
+					"annotation" : "Drift of each warp marker against the grid: green kept, red no marker in tolerance, yellow outlier. The grey band is the tolerance around the expected drift. Click a bar to move the playhead there; click it again to zoom out.",
 					"border" : 0,
 					"filename" : "graph.js",
 					"hint" : "",
@@ -767,13 +955,73 @@
 			}
 , 			{
 				"box" : 				{
+					"id" : "obj-120",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 85.0, 194.0, 60.0, 20.0 ],
+					"text" : "expr 1 << $i1"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"id" : "obj-114",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 600.0, 400.0, 92.0, 20.0 ],
+					"text" : "prepend strength"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"id" : "obj-115",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 700.0, 400.0, 78.0, 20.0 ],
+					"text" : "prepend track"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"id" : "obj-116",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 786.0, 400.0, 80.0, 20.0 ],
+					"text" : "prepend detect"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"id" : "obj-117",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 874.0, 400.0, 88.0, 20.0 ],
+					"text" : "prepend repitch"
+				}
+
+			}
+, 			{
+				"box" : 				{
 					"id" : "obj-24",
 					"maxclass" : "newobj",
 					"numinlets" : 3,
 					"numoutlets" : 1,
 					"outlettype" : [ "" ],
 					"patching_rect" : [ 14.666667103767395, 193.571433186531067, 64.0, 20.0 ],
-					"text" : "pak 4. 0.1 0."
+					"text" : "pak 4. 50. 0."
 				}
 
 			}
@@ -812,6 +1060,31 @@
 					"numoutlets" : 0,
 					"patching_rect" : [ 0.0, 170.0, 134.0, 20.0 ],
 					"text" : "Device vertical limit"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"angle" : 270.0,
+					"bgcolor" : [ 0.164705882352941, 0.164705882352941, 0.164705882352941, 1.0 ],
+					"bordercolor" : [ 0.525490196078431, 0.525490196078431, 0.525490196078431, 0.0 ],
+					"id" : "obj-118",
+					"maxclass" : "panel",
+					"mode" : 0,
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 851.0, 3.5, 106.0, 161.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 851.0, 3.5, 106.0, 161.0 ],
+					"proportion" : 0.39,
+					"rounded" : 20,
+					"saved_attribute_attributes" : 					{
+						"bgfillcolor" : 						{
+							"expression" : "themecolor.live_dial_needle_zombie"
+						}
+
+					}
+
 				}
 
 			}
@@ -867,9 +1140,9 @@
 					"mode" : 0,
 					"numinlets" : 1,
 					"numoutlets" : 0,
-					"patching_rect" : [ 0.0, -0.694444477558136, 854.166707396507263, 170.833341479301453 ],
+					"patching_rect" : [ 0.0, -0.694444477558136, 960.0, 170.833341479301453 ],
 					"presentation" : 1,
-					"presentation_rect" : [ 0.0, -0.694444477558136, 854.166707396507263, 170.833341479301453 ],
+					"presentation_rect" : [ 0.0, -0.694444477558136, 960.0, 170.833341479301453 ],
 					"proportion" : 0.39,
 					"rounded" : 0,
 					"saved_attribute_attributes" : 					{
@@ -884,6 +1157,76 @@
 			}
  ],
 		"lines" : [ 			{
+				"patchline" : 				{
+					"destination" : [ "obj-2", 0 ],
+					"source" : [ "obj-14", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-2", 0 ],
+					"source" : [ "obj-117", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-117", 0 ],
+					"source" : [ "obj-113", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-2", 0 ],
+					"source" : [ "obj-116", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-116", 0 ],
+					"source" : [ "obj-112", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-2", 0 ],
+					"source" : [ "obj-115", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-115", 0 ],
+					"source" : [ "obj-111", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-2", 0 ],
+					"source" : [ "obj-114", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-114", 0 ],
+					"source" : [ "obj-110", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-24", 0 ],
+					"source" : [ "obj-120", 0 ]
+				}
+
+			}
+, 			{
 				"patchline" : 				{
 					"destination" : [ "obj-21", 0 ],
 					"source" : [ "obj-10", 1 ]
@@ -906,7 +1249,7 @@
 			}
 , 			{
 				"patchline" : 				{
-					"destination" : [ "obj-24", 0 ],
+					"destination" : [ "obj-120", 0 ],
 					"source" : [ "obj-11", 0 ]
 				}
 
@@ -1151,6 +1494,10 @@
 			"obj-43" : [ "live.text[4]", "live.text", 0 ],
 			"obj-44" : [ "live.text[5]", "live.text", 0 ],
 			"obj-87" : [ "live.text[1]", "live.text", 0 ],
+			"obj-110" : [ "Snap Strength", "Strength", 0 ],
+			"obj-111" : [ "Track Drift", "Track", 0 ],
+			"obj-112" : [ "Detect Kicks", "Detect", 0 ],
+			"obj-113" : [ "Re-Pitch", "Re-Pitch", 0 ],
 			"parameterbanks" : 			{
 				"0" : 				{
 					"index" : 0,

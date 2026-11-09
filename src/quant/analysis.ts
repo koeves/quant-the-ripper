@@ -7,6 +7,8 @@ namespace Analysis {
 
     export interface GridMatch {
         targetBeat: number;
+        /** Predicted drift at this grid point; the marker is searched around targetBeat + this. */
+        expectedDrift: number;
         marker: Model.WarpMarker | null;
         accepted: boolean;
         reason: string;
@@ -14,6 +16,37 @@ namespace Analysis {
 
     /** How many markers past the target to look at when searching for the closest one. */
     const LOOKAHEAD = 12;
+    /** Accepted markers used to predict the next drift value. */
+    const DRIFT_HISTORY = 8;
+    /** Largest drift slope the tracker will follow: beats of drift per beat (2% speed change). */
+    const MAX_DRIFT_SLOPE = 0.02;
+
+    interface DriftSample { t: number; d: number; }
+
+    /**
+     * Predicts the drift at `beat` from recent accepted markers with a
+     * least-squares line, so slowly changing speed (vinyl wow, a rip that is
+     * slightly off tempo) is followed instead of falling out of tolerance.
+     */
+    export function predictDrift(history: DriftSample[], beat: number): number {
+        const n = history.length;
+        if (n === 0) return 0;
+        if (n === 1) return history[0].d;
+
+        let mt = 0, md = 0;
+        for (let i = 0; i < n; i++) { mt += history[i].t; md += history[i].d; }
+        mt /= n; md /= n;
+
+        let num = 0, den = 0;
+        for (let i = 0; i < n; i++) {
+            const dt = history[i].t - mt;
+            num += dt * (history[i].d - md);
+            den += dt * dt;
+        }
+        let slope = den > 0 ? num / den : 0;
+        slope = Math.max(-MAX_DRIFT_SLOPE, Math.min(MAX_DRIFT_SLOPE, slope));
+        return md + slope * (beat - mt);
+    }
 
     export function findNearestForwardMarker(
         targetBeat: number,
@@ -55,28 +88,34 @@ namespace Analysis {
     /**
      * Walks the target grid (startBeat + k * gridBeats) and picks, for each
      * grid point, the closest not-yet-used marker. A marker is accepted when it
-     * lies within `toleranceBeats` of the grid point. Pure: no LiveAPI access.
+     * lies within `toleranceBeats` of where it is expected: the grid point
+     * itself, or with `trackDrift` the grid point shifted by the drift
+     * predicted from earlier accepted markers. Pure: no LiveAPI access.
      */
     export function matchGrid(
         markers: Model.WarpMarker[],
         gridBeats: number,
         toleranceBeats: number,
-        startBeat: number
+        startBeat: number,
+        trackDrift: boolean = false
     ): GridMatch[] {
         const out: GridMatch[] = [];
         if (!markers.length || !(gridBeats > 0)) return out;
 
         const lastMarkerBeat = markers[markers.length - 1].beat_time;
+        const history: DriftSample[] = [];
         let markerIndex = 0;
 
         // Compute each target from its index rather than accumulating, so
         // floating point error does not build up over long tracks.
         for (let k = 0; ; k++) {
             const targetBeat = Utils.round(startBeat + k * gridBeats, 7);
-            if (targetBeat > lastMarkerBeat + toleranceBeats) break;
+            const expectedDrift = trackDrift ? predictDrift(history, targetBeat) : 0;
+            const expectedBeat = targetBeat + expectedDrift;
+            if (expectedBeat > lastMarkerBeat + toleranceBeats) break;
             if (markerIndex >= markers.length) break;
 
-            const match = findNearestForwardMarker(targetBeat, markers, markerIndex, LOOKAHEAD);
+            const match = findNearestForwardMarker(expectedBeat, markers, markerIndex, LOOKAHEAD);
 
             let accepted = false;
             let reason = "no_marker";
@@ -86,19 +125,82 @@ namespace Analysis {
                     accepted = true;
                     reason = "accepted";
                     markerIndex = match.markerIndex + 1;
+                    history.push({ t: targetBeat, d: match.marker.beat_time - targetBeat });
+                    if (history.length > DRIFT_HISTORY) history.shift();
                 } else {
                     reason = "outside_tolerance";
-                    // Move forward if the marker is clearly behind the target.
-                    if (match.marker.beat_time < targetBeat) {
+                    // Move forward if the marker is clearly behind the expected position.
+                    if (match.marker.beat_time < expectedBeat) {
                         markerIndex = Math.max(markerIndex, match.markerIndex + 1);
                     }
                 }
             }
 
-            out.push({ targetBeat: targetBeat, marker: match.marker, accepted: accepted, reason: reason });
+            out.push({
+                targetBeat: targetBeat,
+                expectedDrift: Utils.round(expectedDrift, 7),
+                marker: match.marker,
+                accepted: accepted,
+                reason: reason,
+            });
         }
 
         return out;
+    }
+
+    /**
+     * Grid points the arrows step through: every outlier, plus the first point
+     * of each run of rejected points (a gap where a marker is missing).
+     * graph.js implements the same rule; keep them in sync.
+     */
+    export function navigationStops(points: { accepted: boolean; outlier: boolean }[]): number[] {
+        const stops: number[] = [];
+        for (let i = 0; i < points.length; i++) {
+            const p = points[i];
+            if (p.outlier || (!p.accepted && (i === 0 || points[i - 1].accepted))) stops.push(i);
+        }
+        return stops;
+    }
+
+    /** Number of consecutive rejected points starting at `index`. */
+    export function gapLength(points: Model.AnalysisPoint[], index: number): number {
+        let n = 0;
+        while (index + n < points.length && !points[index + n].accepted) n++;
+        return n;
+    }
+
+    /**
+     * Warp marker operations that turn the prepared clip's markers into the
+     * snapped result:
+     * 1. remove markers that are not accepted (manual additions after Prep),
+     * 2. move markers left onto the grid in ascending order,
+     * 3. move markers right onto the grid in descending order.
+     * This order never moves a marker past a neighbour, even when drift is
+     * larger than the grid step. `strength` < 1 moves markers part of the way.
+     */
+    export function planSnap(
+        points: Model.AnalysisPoint[],
+        clipMarkerBeats: number[],
+        strength: number
+    ): Model.WarpOp[] {
+        const s = Math.max(0, Math.min(1, strength));
+        const accepted = points.filter((p) => p.accepted && p.markerSampleTime >= 0);
+        const keep = new Set(accepted.map((p) => p.markerBeat));
+
+        const ops: Model.WarpOp[] = [];
+        for (let i = 0; i < clipMarkerBeats.length; i++) {
+            if (!keep.has(clipMarkerBeats[i])) ops.push({ op: "remove", beat: clipMarkerBeats[i] });
+        }
+
+        const moves = accepted
+            .map((p) => ({ beat: p.markerBeat, distance: Utils.round(s * (p.targetBeat - p.markerBeat), 7) }))
+            .filter((m) => m.distance !== 0)
+            .sort((a, b) => a.beat - b.beat);
+
+        const left = moves.filter((m) => m.distance < 0);
+        const right = moves.filter((m) => m.distance > 0).reverse();
+        for (const m of left.concat(right)) ops.push({ op: "move", beat: m.beat, distance: m.distance });
+        return ops;
     }
 
     export function validateParams(gridBeats: number, toleranceBeats: number, startBeat: number): string | null {
@@ -113,7 +215,8 @@ namespace Analysis {
         clip: LiveAPI,
         gridBeats: number,
         toleranceBeats: number,
-        startBeat: number = 0
+        startBeat: number = 0,
+        trackDrift: boolean = false
     ): { analysis: Model.AnalysisResult; graph: Model.GraphPayload } | null {
         const validated = validateClipForAnalysis(clip);
         if (!validated) return null;
@@ -134,7 +237,7 @@ namespace Analysis {
 
         Utils.debug("Parsed " + sourceMarkers.length + " source warp markers");
 
-        const matches = matchGrid(sourceMarkers, gridBeats, toleranceBeats, startBeat);
+        const matches = matchGrid(sourceMarkers, gridBeats, toleranceBeats, startBeat, trackDrift);
         const points: Model.AnalysisPoint[] = matches.map(function (m, idx) {
             const markerBeat = m.marker ? m.marker.beat_time : m.targetBeat;
             const markerSampleTime = m.marker ? m.marker.sample_time : -1;
@@ -142,6 +245,8 @@ namespace Analysis {
             return {
                 index: idx,
                 targetBeat: m.targetBeat,
+                expectedBeat: Utils.round(m.targetBeat + m.expectedDrift, 7),
+                expectedDriftBeats: m.expectedDrift,
                 markerBeat: Utils.round(markerBeat, 7),
                 markerSampleTime: Utils.round(markerSampleTime, 7),
                 driftBeats: Utils.round(driftBeats, 7),
@@ -154,7 +259,7 @@ namespace Analysis {
             };
         });
 
-        detectDriftOutliers(points, toleranceBeats);
+        detectDriftOutliers(points, toleranceBeats, trackDrift);
         const outliers = points.filter((p) => p.outlier);
 
         // Drift statistics only cover markers that are actually kept and snapped.
@@ -170,6 +275,7 @@ namespace Analysis {
             gridBeats: gridBeats,
             toleranceBeats: toleranceBeats,
             analysisStartBeat: startBeat,
+            trackDrift: trackDrift,
             clipStartBeat: Utils.round(clipStartBeat, 6),
             clipEndBeat: Utils.round(clipEndBeat, 6),
             startTime: Utils.round(arrangementStart, 6),
@@ -179,6 +285,7 @@ namespace Analysis {
                 accepted: acceptedPoints.length,
                 outliers: outliers.length,
                 rejected: points.length - acceptedPoints.length,
+                gaps: navigationStops(points).filter((i) => !points[i].outlier).length,
                 uniqueMarkersUsed: acceptedPoints.length,
                 minDriftBeats: Utils.round(Utils.min(driftBeats), 6),
                 maxDriftBeats: Utils.round(Utils.max(driftBeats), 6),
@@ -195,6 +302,7 @@ namespace Analysis {
                 xBeat: p.targetBeat,
                 yBeats: p.driftBeats,
                 yMs: p.driftMs,
+                yExp: p.expectedDriftBeats,
                 ok: p.accepted,
                 outlier: p.outlier
             };
@@ -236,7 +344,14 @@ namespace Analysis {
         return State.state.lastAnalysis.points.filter(p => p.outlier);
     }
 
-    function validateClipForAnalysis(clip: LiveAPI): { filePath: string } | null {
+    /** Outliers and gaps of the last analysis, in clip order. */
+    export function getStopPoints(): Model.AnalysisPoint[] {
+        const a = State.state.lastAnalysis;
+        if (!a) return [];
+        return navigationStops(a.points).map((i) => a.points[i]);
+    }
+
+    export function validateClipForAnalysis(clip: LiveAPI): { filePath: string } | null {
         if (Utils.numberProp(clip, "is_audio_clip") !== 1) {
             Utils.fail("Selected clip is not an audio clip");
             return null;
@@ -262,25 +377,31 @@ namespace Analysis {
     }
 
     /**
-     * Flags accepted points whose drift does not fit their neighbours.
+     * Flags accepted points whose drift (or, with `relativeToTrend`, distance
+     * from the predicted drift) does not fit their neighbours.
      * Only accepted points are considered, and the first/last accepted point
      * is never flagged because it has only one neighbour.
      */
-    export function detectDriftOutliers(points: Model.AnalysisPoint[], toleranceBeats: number): void {
+    export function detectDriftOutliers(points: Model.AnalysisPoint[], toleranceBeats: number, relativeToTrend: boolean = false): void {
         const accepted = points.filter(function (p) { return p.accepted; });
+        // With drift tracking, judge each marker against the predicted trend so a
+        // steadily drifting rip does not look like a series of jumps.
+        const value = (p: Model.AnalysisPoint) => relativeToTrend ? p.driftBeats - (p.expectedDriftBeats || 0) : p.driftBeats;
 
         const eps = 0.0001;
         const ratio = 1.5;
         const minJump = Math.max(0.02, toleranceBeats * 0.25);
 
-        for (let i = 1; i < accepted.length - 1; i++) {
+        // The trend needs two accepted markers before its prediction means anything.
+        const first = relativeToTrend ? 2 : 1;
+        for (let i = first; i < accepted.length - 1; i++) {
             const prev = accepted[i - 1];
             const curr = accepted[i];
             const next = accepted[i + 1];
 
-            const a = prev.driftBeats;
-            const b = curr.driftBeats;
-            const c = next.driftBeats;
+            const a = value(prev);
+            const b = value(curr);
+            const c = value(next);
 
             const absA = Math.abs(a);
             const absB = Math.abs(b);
@@ -291,7 +412,9 @@ namespace Analysis {
                 (b > eps && a < -eps && c < -eps) ||
                 (b < -eps && a > eps && c > eps);
 
-            const isolatedFlip = sameOuterSign && currOpposite;
+            // A sign flip only matters when the point is also clearly away from
+            // its neighbours; around a trend the sign of tiny residuals is noise.
+            const isolatedFlip = sameOuterSign && currOpposite && Math.abs(b - (a + c) / 2) > minJump;
 
             const localSpike =
                 absB > ratio * Math.max(absA, eps) &&

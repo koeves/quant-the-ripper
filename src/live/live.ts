@@ -289,17 +289,20 @@ namespace Live {
         State.state.finalizePrepTask.schedule(1);
     }
 
-    export function snapAcceptedMarkers(clip: LiveAPI, analysis: Model.AnalysisResult): void {
-        const accepted = analysis.points
-            .filter(function (p) { return p.accepted && p.markerSampleTime >= 0; })
-            .sort(function (a, b) { return a.targetBeat - b.targetBeat; });
+    /** Snaps the clip's accepted markers onto the grid; `strength` 0..1 moves them part of the way. */
+    export function snapAcceptedMarkers(clip: LiveAPI, analysis: Model.AnalysisResult, strength: number = 1): void {
+        const markers = getWarpMarkersFromClip(clip) || [];
+        const beats = markers.slice(0, -1).map((m) => m.beat_time); // without the hidden marker
+        const ops = Analysis.planSnap(analysis.points, beats, strength);
+        const acceptedCount = analysis.points.filter((p) => p.accepted).length;
 
         State.state.pendingSnap = {
             clip: clip,
-            accepted: accepted,
+            ops: ops,
             index: 0,
             moved: 0,
-            skippedRejected: analysis.points.length - accepted.length,
+            removed: 0,
+            skippedRejected: analysis.points.length - acceptedCount,
             failed: 0
         };
 
@@ -315,18 +318,18 @@ namespace Live {
         if (!pending) return;
 
         const batchSize = 100;
-        const total = pending.accepted.length;
+        const total = pending.ops.length;
 
         let processed = 0;
         while (processed < batchSize && pending.index < total) {
-            const p = pending.accepted[pending.index];
-
-            const beatMarker = Utils.round(p.markerBeat, 7);
-            const beatDistance = Utils.round(p.targetBeat - p.markerBeat, 7);
-
-            if (beatDistance === 0 || moveWarpMarker(pending.clip, beatMarker, beatDistance)) pending.moved += 1;
-            else pending.failed += 1;
-
+            const op = pending.ops[pending.index];
+            if (op.op === "remove") {
+                if (removeWarpMarker(pending.clip, op.beat)) pending.removed += 1;
+                else pending.failed += 1;
+            } else {
+                if (moveWarpMarker(pending.clip, op.beat, op.distance)) pending.moved += 1;
+                else pending.failed += 1;
+            }
             pending.index += 1;
             processed += 1;
         }
@@ -340,6 +343,7 @@ namespace Live {
 
         post(
             "Snap done. moved=" + pending.moved +
+            ", removed=" + pending.removed +
             ", skippedRejected=" + pending.skippedRejected +
             ", failed=" + pending.failed + "\n"
         );

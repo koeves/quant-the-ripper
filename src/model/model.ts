@@ -7,15 +7,28 @@ namespace Model {
     export interface AnalysisPoint {
         index: number;
         targetBeat: number;
+        /** Where the marker was expected: target plus the drift predicted from earlier markers. */
+        expectedBeat: number;
         markerBeat: number;
         markerSampleTime: number;
         driftBeats: number;
         driftMs: number;
+        /** Predicted drift at this grid point (0 when drift tracking is off). */
+        expectedDriftBeats: number;
         absDriftBeats: number;
         accepted: boolean;
         reason: string;
         outlier: boolean;
         outlierReason: string;
+    }
+
+    /** Settings a Prep runs with. Changing any of them rebuilds the prepared clip. */
+    export interface PrepSettings {
+        gridBeats: number;
+        toleranceBeats: number;
+        startBeat: number;
+        trackDrift: boolean;
+        detectKicks: boolean;
     }
 
     export interface AnalysisResult {
@@ -26,6 +39,7 @@ namespace Model {
         gridBeats: number;
         toleranceBeats: number;
         analysisStartBeat: number;
+        trackDrift: boolean;
         clipStartBeat: number;
         clipEndBeat: number;
         startTime: number;
@@ -35,6 +49,7 @@ namespace Model {
             accepted: number;
             rejected: number;
             outliers: number;
+            gaps: number;
             uniqueMarkersUsed: number;
             minDriftBeats: number;
             maxDriftBeats: number;
@@ -50,6 +65,8 @@ namespace Model {
         xBeat: number;
         yBeats: number;
         yMs: number;
+        /** Expected drift in beats; the tolerance band is drawn around it. */
+        yExp: number;
         ok: boolean;
         outlier: boolean;
     }
@@ -72,12 +89,26 @@ namespace Model {
         points: GraphPoint[];
     }
 
+    /** Values set by the device's option controls; kept across Reset. */
+    export interface Options {
+        trackDrift: boolean;
+        detectKicks: boolean;
+        /** Snap strength, 0..1. */
+        strength: number;
+        repitch: boolean;
+    }
+
+    export type WarpOp =
+        | { op: "remove"; beat: number }
+        | { op: "move"; beat: number; distance: number };
+
     export interface RuntimeState {
         lastAnalysis: AnalysisResult | null;
         lastGraph: GraphPayload | null;
         lastAfterAnalysis: AnalysisResult | null;
         lastAfterGraph: GraphPayload | null;
         lastClipId: string;
+        lastSettings: PrepSettings | null;
 
         originalTrackId: string;
         originalClipId: string;
@@ -97,15 +128,19 @@ namespace Model {
 
         pendingSnap: {
             clip: LiveAPI;
-            accepted: AnalysisPoint[];
+            ops: WarpOp[];
             index: number;
             moved: number;
+            removed: number;
             skippedRejected: number;
             failed: number;
         } | null;
 
+        pendingDetect: Detect.Job | null;
+
         removalTask: Task | null;
         snapTask: Task | null;
+        detectTask: Task | null;
 
         finalizePrepClip: LiveAPI | null;
         finalizeSnapClip: LiveAPI | null;
