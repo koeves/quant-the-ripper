@@ -2,12 +2,14 @@
     "compilerOptions": {
         "target": "ES2021",
         "strict": true,
-        "noEmitOnError": false,
-        "outFile": "plugin/quant.js",
+        "noEmitOnError": true,
+        "outFile": "device/quant.js",
         "rootDir": "src",
         "module": "none",
         "removeComments": false,
-        "ignoreDeprecations": "6.0"
+        "ignoreDeprecations": "6.0",
+        "noUnusedLocals": true,
+        "noUnusedParameters": true
     },
     "include": [
         "src/**/*.ts"

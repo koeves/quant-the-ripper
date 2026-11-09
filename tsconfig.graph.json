@@ -1,13 +1,18 @@
 {
     "compilerOptions": {
-        "target": "ES2019",
+        "target": "ES5",
         "strict": true,
-        "noEmitOnError": false,
-        "outFile": "plugin/graph.js",
+        "noEmitOnError": true,
+        "outFile": "device/graph.js",
         "rootDir": "src",
         "module": "none",
         "removeComments": false,
-        "ignoreDeprecations": "6.0"
+        "ignoreDeprecations": "6.0",
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "lib": [
+            "ES5"
+        ]
     },
     "include": [
         "src/graph/graph.ts"

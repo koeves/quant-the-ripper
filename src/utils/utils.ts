@@ -1,10 +1,22 @@
 namespace Utils {
+    /** Set to true to print verbose diagnostics to the Max console. */
+    export let DEBUG = false;
+
+    export function debug(...args: any[]): void {
+        if (DEBUG) post(...args, "\n");
+    }
+
     export function lastValue(v: any): any {
         return Array.isArray(v) ? v[v.length - 1] : v;
     }
 
     export function toNumber(v: any): number {
         return Number(v);
+    }
+
+    /** Reads a numeric LiveAPI property (LiveAPI.get returns arrays). */
+    export function numberProp(obj: LiveAPI, property: string): number {
+        return toNumber(lastValue(obj.get(property)));
     }
 
     export function toPropertyString(v: any): string {
@@ -53,20 +65,23 @@ namespace Utils {
         return n < 0 ? -n : n;
     }
 
-    export function ceilToStep(value: number, step: number): number {
-        return Math.ceil(value / step) * step;
-    }
-
-    export function sampleKey(sampleTime: number): string {
-        return String(round(sampleTime, 7));
+    /** Ids that LiveAPI hands back for missing objects are 0. */
+    export function isValidId(id: any): boolean {
+        return id !== undefined && id !== null && id !== "" && Number(id) !== 0;
     }
 
     export function setProgress(text: string): void {
         State.state.progressText = text;
-        outlet(0, "progress_text", text.replaceAll("\"", ""));
+        outlet(0, "progress_text", String(text).replace(/"/g, ""));
     }
 
     export function clearProgress(): void {
         setProgress("");
+    }
+
+    /** Reports an error both to the Max console and to the device's status line. */
+    export function fail(message: string): void {
+        error(message + "\n");
+        setProgress(message);
     }
 }
