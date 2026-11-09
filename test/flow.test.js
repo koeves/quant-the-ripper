@@ -521,3 +521,20 @@ test("arrows and graph clicks leave the playhead and Live's selection alone", ()
     assert.equal(live.view.detail_clip, clip);
     assert.equal(live.calls.length, before, "no Live API calls");
 });
+
+test("Reset after Prep deletes the prepared track even if its id changed", () => {
+    const { live, q } = setup();
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    q.State.state.preparedTrackId = "9999";
+    q.clear();
+    assert.deepEqual(trackNames(live), ["Kick", "Rip", "Bass"]);
+});
+
+test("Reset after Prep deletes the prepared track", () => {
+    const { live, q } = setup();
+    q.prep(1, TOL, 0);
+    live.runTasks();
+    q.clear();
+    assert.deepEqual(trackNames(live), ["Kick", "Rip", "Bass"]);
+});

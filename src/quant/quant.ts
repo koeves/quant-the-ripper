@@ -79,11 +79,22 @@ namespace Quant {
         cancelTasks();
 
         const s = State.state;
+        post(`Reset: prepared track id ${s.preparedTrackId || "-"}, quanted track id ${s.quantedTrackId || "-"}, prepared clip id ${s.lastClipId || "-"}\n`);
         if (s.quantedTrackId) Live.deleteTrackById(s.quantedTrackId);
-        if (s.preparedTrackId) Live.deleteTrackById(s.preparedTrackId);
+        if (!(s.preparedTrackId && Live.deleteTrackById(s.preparedTrackId))) deletePreparedClipTrack();
 
         State.reset();
         Utils.clearProgress();
+    }
+
+    /** Fallback for Reset: delete the track holding the _prepared clip, unless it is the original's track. */
+    function deletePreparedClipTrack(): void {
+        const s = State.state;
+        const clip = Live.byId(s.lastClipId);
+        const track = clip ? Live.getTrackForClip(clip) : null;
+        if (!track || String(track.id) === s.originalTrackId) return;
+        post("Reset: prepared track not found by id, deleting track " + track.id + " of the prepared clip\n");
+        Live.deleteTrackById(String(track.id));
     }
 
     // ---- Options -------------------------------------------------------------
@@ -273,6 +284,7 @@ namespace Quant {
             return;
         }
         s.preparedTrackId = String(preparedTrack.id);
+        post("Prep: prepared track id " + s.preparedTrackId + " at index " + Live.findTrackIndexById(s.preparedTrackId) + "\n");
 
         const preparedClip = Live.duplicateClipToTrack(clip, preparedTrack, startTime, preparedName);
         Live.restoreViewToOriginalTrack();

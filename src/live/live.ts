@@ -359,11 +359,14 @@ namespace Live {
 
     export function deleteTrackById(trackId: string): boolean {
         const index = findTrackIndexById(trackId);
-        if (index < 0) return false;
+        if (index < 0) {
+            post("Track id " + trackId + " not found, not deleted\n");
+            return false;
+        }
 
         try {
             new LiveAPI(undefined, "live_set").call("delete_track", index);
-            Utils.debug("Deleted track id " + trackId);
+            post("Deleted track id " + trackId + " at index " + index + "\n");
             return true;
         } catch (e: any) {
             error("Failed deleting track " + trackId + ": " + String(e) + "\n");
