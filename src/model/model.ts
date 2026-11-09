@@ -81,6 +81,9 @@ namespace Model {
 
         originalTrackId: string;
         originalClipId: string;
+        originalClipName: string;
+        preparedTrackId: string;
+        quantedTrackId: string;
 
         progressText: string;
 
@@ -98,8 +101,7 @@ namespace Model {
             index: number;
             moved: number;
             skippedRejected: number;
-            skippedNoSample: number;
-            skippedNoWarpPoint: number;
+            failed: number;
         } | null;
 
         removalTask: Task | null;
@@ -109,6 +111,8 @@ namespace Model {
         finalizeSnapClip: LiveAPI | null;
         finalizePrepTask: Task | null;
         finalizeSnapTask: Task | null;
+
+        lastSnapMoved: number;
 
         currentOutlierIndex: number;
     }

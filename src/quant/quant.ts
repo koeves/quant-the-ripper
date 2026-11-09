@@ -1,168 +1,233 @@
 namespace State {
-    export const state: Model.RuntimeState = {
-        lastAnalysis: null,
-        lastGraph: null,
-        lastAfterAnalysis: null,
-        lastAfterGraph: null,
-        lastClipId: "",
+    export const PREPARED_SUFFIX = "_prepared";
+    export const QUANTED_SUFFIX = "_quanted";
 
-        originalTrackId: "",
-        originalClipId: "",
+    export function initialState(): Model.RuntimeState {
+        return {
+            lastAnalysis: null,
+            lastGraph: null,
+            lastAfterAnalysis: null,
+            lastAfterGraph: null,
+            lastClipId: "",
 
-        progressText: "",
+            originalTrackId: "",
+            originalClipId: "",
+            originalClipName: "",
+            preparedTrackId: "",
+            quantedTrackId: "",
 
-        pendingRemoval: null,
-        pendingSnap: null,
+            progressText: "",
 
-        removalTask: null,
-        snapTask: null,
+            pendingRemoval: null,
+            pendingSnap: null,
 
-        finalizePrepClip: null,
-        finalizeSnapClip: null,
-        finalizePrepTask: null,
-        finalizeSnapTask: null,
+            removalTask: null,
+            snapTask: null,
 
-        currentOutlierIndex: -1
-    };
+            finalizePrepClip: null,
+            finalizeSnapClip: null,
+            finalizePrepTask: null,
+            finalizeSnapTask: null,
+
+            lastSnapMoved: 0,
+
+            currentOutlierIndex: -1
+        };
+    }
+
+    export const state: Model.RuntimeState = initialState();
+
+    export function reset(): void {
+        const fresh = initialState();
+        const target = state as any;
+        for (const key in fresh) {
+            target[key] = (fresh as any)[key];
+        }
+    }
 }
 
 namespace Quant {
+    export function cancelTasks(): void {
+        const s = State.state;
+        s.removalTask = Live.cancelTask(s.removalTask);
+        s.snapTask = Live.cancelTask(s.snapTask);
+        s.finalizePrepTask = Live.cancelTask(s.finalizePrepTask);
+        s.finalizeSnapTask = Live.cancelTask(s.finalizeSnapTask);
+        s.pendingRemoval = null;
+        s.pendingSnap = null;
+    }
+
+    function isBusy(): boolean {
+        const s = State.state;
+        return !!(s.pendingRemoval || s.pendingSnap || s.finalizePrepTask || s.finalizeSnapTask);
+    }
+
+    /** Deletes the _prepared and _quanted tracks created for the current clip and resets all state. */
     export function clear(): void {
-        const analysis = State.state.lastAnalysis;
+        cancelTasks();
 
-        State.state.lastAnalysis = null;
-        State.state.lastGraph = null;
-        State.state.lastAfterAnalysis = null;
-        State.state.lastAfterGraph = null;
-        State.state.lastClipId = "";
-        State.state.finalizePrepClip = null;
-        State.state.finalizeSnapClip = null;
+        const s = State.state;
+        if (s.quantedTrackId) Live.deleteTrackById(s.quantedTrackId);
+        if (s.preparedTrackId) Live.deleteTrackById(s.preparedTrackId);
 
-        if (State.state.removalTask) {
-            State.state.removalTask.cancel();
-            State.state.removalTask = null;
-        }
-        if (State.state.snapTask) {
-            State.state.snapTask.cancel();
-            State.state.snapTask = null;
-        }
-        if (State.state.finalizePrepTask) {
-            State.state.finalizePrepTask.cancel();
-            State.state.finalizePrepTask = null;
-        }
-        if (State.state.finalizeSnapTask) {
-            State.state.finalizeSnapTask.cancel();
-            State.state.finalizeSnapTask = null;
-        }
-
-        State.state.pendingRemoval = null;
-        State.state.pendingSnap = null;
-
-        if (analysis) {
-            const preparedTrackName = analysis.clipName;
-            const quantedTrackName = analysis.clipName.replace("prepared", "quanted");
-
-            Live.deleteTrackByName(preparedTrackName);
-            Live.deleteTrackByName(quantedTrackName);
-        }
-
-        State.state.currentOutlierIndex = -1;
-
+        State.reset();
         Utils.clearProgress();
     }
 
-    export function prep(
-        gridBeats: number,
-        toleranceBeats: number,
-        startBeat: number
-    ): void {
-        post("prep");
+    function sameParams(a: Model.AnalysisResult, gridBeats: number, toleranceBeats: number, startBeat: number): boolean {
+        const eps = 1e-9;
+        return Math.abs(a.gridBeats - gridBeats) < eps &&
+            Math.abs(a.toleranceBeats - toleranceBeats) < eps &&
+            Math.abs(a.analysisStartBeat - startBeat) < eps;
+    }
+
+    /**
+     * Prep button.
+     * - No previous analysis, or a different clip is selected: duplicate the
+     *   selected clip to a new _prepared track and analyze it.
+     * - Same clip, same parameters: re-analyze the _prepared clip, keeping
+     *   manual warp marker edits.
+     * - Same clip, changed parameters: rebuild the _prepared clip from the
+     *   original so markers removed under the old settings come back.
+     */
+    export function prep(gridBeats: number, toleranceBeats: number, startBeat: number): void {
         try {
-            if (State.state.lastAnalysis) {
-                post("analyze");
-                analyze();
-            }
-            else {
-                prepNew(gridBeats, toleranceBeats, startBeat);
+            gridBeats = Number(gridBeats);
+            toleranceBeats = Number(toleranceBeats);
+            startBeat = Number(startBeat) || 0;
+
+            const invalid = Analysis.validateParams(gridBeats, toleranceBeats, startBeat);
+            if (invalid) {
+                Utils.fail(invalid);
+                return;
             }
 
+            if (isBusy()) {
+                Utils.setProgress("Still working, please wait");
+                return;
+            }
+
+            const s = State.state;
+            const previous = s.lastAnalysis;
+            const preparedClip = previous ? Live.byId(s.lastClipId) : null;
+            const originalClip = previous ? Live.byId(s.originalClipId) : null;
+
+            if (!previous || !preparedClip || !originalClip) {
+                // Nothing analyzed yet, or the user deleted the clips: forget stale track ids.
+                State.reset();
+                prepNew(gridBeats, toleranceBeats, startBeat);
+                return;
+            }
+
+            if (!ownsSelection(Live.clipInfo())) {
+                // User moved on to another clip: leave the old tracks in place and start over.
+                State.reset();
+                prepNew(gridBeats, toleranceBeats, startBeat);
+                return;
+            }
+
+            if (!sameParams(previous, gridBeats, toleranceBeats, startBeat)) {
+                rebuildPrepared(originalClip, gridBeats, toleranceBeats, startBeat);
+                return;
+            }
+
+            s.finalizePrepClip = preparedClip;
+            analyze();
         } catch (e: any) {
-            error("analyze() failed: " + String(e) + "\n");
+            Utils.fail("Prep failed: " + String(e));
         }
     }
 
-    function prepNew(
-        gridBeats: number,
-        toleranceBeats: number,
-        startBeat: number
-    ): void {
-        const clip = Live.clipInfo();
+    /** True when the selected clip is the original, prepared or quanted clip of the current session. */
+    function ownsSelection(selected: LiveAPI | null): boolean {
+        if (!selected) return true;
+        const s = State.state;
+        const id = String(selected.id);
+        if (id === s.originalClipId || id === s.lastClipId) return true;
+        const track = Live.getTrackForClip(selected);
+        return !!track && s.quantedTrackId !== "" && String(track.id) === s.quantedTrackId;
+    }
+
+    function rebuildPrepared(originalClip: LiveAPI, gridBeats: number, toleranceBeats: number, startBeat: number): void {
+        const s = State.state;
+        if (s.quantedTrackId) Live.deleteTrackById(s.quantedTrackId);
+        if (s.preparedTrackId) Live.deleteTrackById(s.preparedTrackId);
+        s.quantedTrackId = "";
+        s.preparedTrackId = "";
+
+        post("Settings changed, rebuilding prepared clip from original\n");
+        prepNew(gridBeats, toleranceBeats, startBeat, originalClip);
+    }
+
+    function prepNew(gridBeats: number, toleranceBeats: number, startBeat: number, source?: LiveAPI): void {
+        const clip = source || Live.clipInfo();
         if (!clip) {
-            error("No detail clip selected.\n");
+            Utils.fail("No clip selected. Select an Arrangement audio clip");
             return;
         }
 
         Live.inspect(clip);
 
-        if (!(gridBeats > 0)) {
-            error("gridBeats must be > 0\n");
+        const clipName = Utils.toPropertyString(clip.get("name"));
+        if (clipName.endsWith(State.PREPARED_SUFFIX) || clipName.endsWith(State.QUANTED_SUFFIX)) {
+            Utils.fail("Select the original clip, not a " + State.PREPARED_SUFFIX + "/" + State.QUANTED_SUFFIX + " copy");
             return;
         }
 
-        if (!(toleranceBeats >= 0)) {
-            error("toleranceBeats must be >= 0\n");
-            return;
-        }
+        // Validate before creating any tracks.
+        if (!Analysis.buildAnalysisForClip(clip, gridBeats, toleranceBeats, startBeat)) return;
 
-        post(`Analyzing fresh clip with beatgrid ${gridBeats} start beat ${startBeat} tolerance beats ${toleranceBeats}\n`);
+        post(`Analyzing fresh clip with grid ${gridBeats}, start beat ${startBeat}, tolerance ${toleranceBeats}\n`);
 
-        const originalClipName = Utils.toPropertyString(clip.get("name"));
         const originalTrack = Live.getTrackForClip(clip);
         if (!originalTrack) {
-            error(`Failed to get track Id for clip ${clip.id} ${originalClipName}`);
+            Utils.fail(`Could not find the track of clip ${clipName}`);
             return;
         }
-        State.state.originalTrackId = String(originalTrack.id);
-        State.state.originalClipId = String(clip.id);
 
-        const startTime = Utils.toNumber(Utils.lastValue(clip.get("start_time")));
-        const preparedTrackName = originalClipName + "_prepared";
-        const preparedTrack = Live.getOrCreateComparisonTrack(preparedTrackName);
+        const s = State.state;
+        s.originalTrackId = String(originalTrack.id);
+        s.originalClipId = String(clip.id);
+        s.originalClipName = clipName;
+
+        const originalIndex = Live.findTrackIndexById(s.originalTrackId);
+        const startTime = Utils.numberProp(clip, "start_time");
+        const preparedName = clipName + State.PREPARED_SUFFIX;
+        const preparedTrack = Live.getOrCreateComparisonTrack(preparedName, originalIndex >= 0 ? originalIndex + 1 : -1);
 
         if (!preparedTrack) {
-            error("Could not create prepared track.\n");
+            Utils.fail("Could not create the " + State.PREPARED_SUFFIX + " track");
             return;
         }
+        s.preparedTrackId = String(preparedTrack.id);
 
-        const preparedClip = Live.duplicateOriginalClipToComparisonTrack(
-            clip,
-            preparedTrack,
-            startTime,
-            `${originalClipName}_prepared`
-        );
-
+        const preparedClip = Live.duplicateClipToTrack(clip, preparedTrack, startTime, preparedName);
         Live.restoreViewToOriginalTrack();
+
+        if (!preparedClip) {
+            Utils.fail("Could not duplicate the clip to the " + State.PREPARED_SUFFIX + " track");
+            return;
+        }
 
         const result = Analysis.buildAnalysisForClip(preparedClip, gridBeats, toleranceBeats, startBeat);
         if (!result) return;
 
-        State.state.lastAnalysis = result.analysis;
-        State.state.lastGraph = result.graph;
-        State.state.lastClipId = String(preparedClip.id);
+        s.lastAnalysis = result.analysis;
+        s.lastGraph = result.graph;
+        s.lastClipId = String(preparedClip.id);
 
-        Utils.setProgress("Starting warp marker removal");
+        Utils.setProgress("Removing unused warp markers");
         Live.removeNonAcceptedWarpMarkers(preparedClip, result.analysis);
     }
 
+    /** Re-analyzes the prepared clip and sends the graph. Runs after marker removal and on re-Prep. */
     export function analyze(): void {
+        const s = State.state;
         try {
-            if (!State.state.lastAnalysis) return;
-            if (!State.state.finalizePrepClip) return;
+            if (!s.lastAnalysis || !s.finalizePrepClip) return;
 
-            const clip = State.state.finalizePrepClip;
-            post(`Analyzing clip ${clip.id}`);
-
-            const previous = State.state.lastAnalysis;
+            const clip = s.finalizePrepClip;
+            const previous = s.lastAnalysis;
             const result = Analysis.buildAnalysisForClip(
                 clip,
                 previous.gridBeats,
@@ -172,74 +237,87 @@ namespace Quant {
 
             if (!result) return;
 
-            State.state.lastAnalysis = result.analysis;
-            State.state.lastGraph = result.graph;
-            State.state.lastClipId = String(clip.id);
+            s.lastAnalysis = result.analysis;
+            s.lastGraph = result.graph;
+            s.lastClipId = String(clip.id);
+            s.lastAfterAnalysis = null;
+            s.lastAfterGraph = null;
+            s.currentOutlierIndex = -1;
 
             outlet(0, "graph_json", JSON.stringify(result.graph));
+            const sum = result.analysis.summary;
             Utils.setProgress(
-                `Done. Selected ${result.analysis.points.length} warp markers. ` +
-                `Avg drift: ${result.analysis.summary.meanAbsDriftBeats.toFixed(2)} beats / ${result.analysis.summary.meanAbsDriftMs.toFixed(2)} ms`
+                `Done. Kept ${sum.accepted}/${sum.totalTargets} markers, ${sum.outliers} outliers. ` +
+                `Avg drift: ${sum.meanAbsDriftBeats.toFixed(3)} beats / ${sum.meanAbsDriftMs.toFixed(2)} ms`
             );
         } catch (e: any) {
-            error("finishPrep() failed: " + String(e) + "\n");
+            Utils.fail("Analysis failed: " + String(e));
         } finally {
-            if (State.state.finalizePrepTask) {
-                State.state.finalizePrepTask.cancel();
-                State.state.finalizePrepTask = null;
-            }
+            s.finalizePrepTask = Live.cancelTask(s.finalizePrepTask);
         }
     }
 
+    /** Snap button: duplicates the prepared clip to a _quanted track and moves accepted markers onto the grid. */
     export function snap(): void {
+        const s = State.state;
         try {
-            if (!State.state.lastAnalysis) {
-                error("No analysis available. Run analyze first.\n");
-                Utils.setProgress("No analysis available, please run Prep first");
+            if (!s.lastAnalysis) {
+                Utils.fail("No analysis available, please run Prep first");
                 return;
             }
 
-            const preparedClip = new LiveAPI(undefined, "id " + State.state.lastClipId);
-            if (!preparedClip || !preparedClip.id || Number(preparedClip.id) === 0) {
-                error("Saved prepared clip could not be found.\n");
-                Utils.setProgress("Prepared clip no longer exists, please run Prep again");
+            if (isBusy()) {
+                Utils.setProgress("Still working, please wait");
                 return;
             }
 
-            const analysis = State.state.lastAnalysis;
-            const quantedTrackName = analysis.clipName.replace("prepared", "quanted");
-            const quantedTrack = Live.getOrCreateComparisonTrack(quantedTrackName);
+            const preparedClip = Live.byId(s.lastClipId);
+            if (!preparedClip) {
+                Utils.fail("Prepared clip no longer exists, please run Prep again");
+                return;
+            }
+
+            // Re-analyze so manual edits made on the prepared clip since the last Prep are used.
+            const previous = s.lastAnalysis;
+            const fresh = Analysis.buildAnalysisForClip(
+                preparedClip, previous.gridBeats, previous.toleranceBeats, previous.analysisStartBeat
+            );
+            if (!fresh) return;
+            s.lastAnalysis = fresh.analysis;
+            s.lastGraph = fresh.graph;
+
+            const quantedName = (s.originalClipName || previous.clipName.replace(new RegExp(State.PREPARED_SUFFIX + "$"), "")) + State.QUANTED_SUFFIX;
+            const preparedIndex = Live.findTrackIndexById(s.preparedTrackId);
+            const quantedTrack = Live.getOrCreateComparisonTrack(quantedName, preparedIndex >= 0 ? preparedIndex + 1 : -1);
 
             if (!quantedTrack) {
-                error("Could not create or find quanted track.\n");
+                Utils.fail("Could not create the " + State.QUANTED_SUFFIX + " track");
+                return;
+            }
+            s.quantedTrackId = String(quantedTrack.id);
+
+            const quantedClip = Live.duplicateClipToTrack(preparedClip, quantedTrack, fresh.analysis.startTime, quantedName);
+            Live.restoreViewToOriginalTrack();
+
+            if (!quantedClip) {
+                Utils.fail("Could not duplicate the clip to the " + State.QUANTED_SUFFIX + " track");
                 return;
             }
 
-            const quantedClip = Live.duplicateOriginalClipToComparisonTrack(
-                preparedClip,
-                quantedTrack,
-                analysis.startTime,
-                quantedTrackName
-            );
-
-            Live.restoreViewToOriginalTrack();
-
-            post("Created quanted clip at path: " + quantedClip.path + "\n");
-
-            Live.snapAcceptedMarkers(quantedClip, analysis);
+            Utils.debug("Created quanted clip at path: " + quantedClip.path);
+            Live.snapAcceptedMarkers(quantedClip, fresh.analysis);
         } catch (e: any) {
-            error("apply() failed: " + String(e) + "\n");
+            Utils.fail("Snap failed: " + String(e));
         }
     }
 
     export function finishSnap(): void {
+        const s = State.state;
         try {
-            if (!State.state.lastAnalysis) return;
-            if (!State.state.finalizeSnapClip) return;
+            if (!s.lastAnalysis || !s.finalizeSnapClip) return;
 
-            const clip = State.state.finalizeSnapClip;
-
-            const previous = State.state.lastAnalysis;
+            const clip = s.finalizeSnapClip;
+            const previous = s.lastAnalysis;
             const result = Analysis.buildAnalysisForClip(
                 clip,
                 previous.gridBeats,
@@ -249,106 +327,70 @@ namespace Quant {
 
             if (!result) return;
 
-            State.state.lastAfterAnalysis = result.analysis;
-            State.state.lastAfterGraph = result.graph;
+            s.lastAfterAnalysis = result.analysis;
+            s.lastAfterGraph = result.graph;
 
             outlet(0, "graph_after_json", JSON.stringify(result.graph));
+            const sum = result.analysis.summary;
             Utils.setProgress(
-                `Done. Snapped ${result.analysis.points.length} warp markers. ` +
-                `Avg drift: ${result.analysis.summary.meanAbsDriftBeats.toFixed(2)} beats / ${result.analysis.summary.meanAbsDriftMs.toFixed(2)} ms`
+                `Done. Snapped ${s.lastSnapMoved} warp markers. ` +
+                `Avg drift: ${sum.meanAbsDriftBeats.toFixed(3)} beats / ${sum.meanAbsDriftMs.toFixed(2)} ms`
             );
         } catch (e: any) {
-            error("finishSnap() failed: " + String(e) + "\n");
+            Utils.fail("Snap failed: " + String(e));
         } finally {
-            State.state.finalizeSnapClip = null;
-            if (State.state.finalizeSnapTask) {
-                State.state.finalizeSnapTask.cancel();
-                State.state.finalizeSnapTask = null;
-            }
+            s.finalizeSnapClip = null;
+            s.finalizeSnapTask = Live.cancelTask(s.finalizeSnapTask);
         }
     }
 
-    export function left(): void {
-        if (!State.state.lastAnalysis) {
+    function stepOutlier(direction: number): void {
+        const s = State.state;
+        if (!s.lastAnalysis) {
             Utils.setProgress("No analysis available, run Prep first");
             return;
         }
 
-        if (State.state.lastAfterAnalysis) return;
+        if (s.lastAfterAnalysis) return;
 
         const outliers = Analysis.getOutlierPoints();
         if (outliers.length === 0) {
-            State.state.currentOutlierIndex = -1;
+            s.currentOutlierIndex = -1;
             Utils.setProgress("No outliers found");
             return;
         }
 
-        if (State.state.currentOutlierIndex < 0 || State.state.currentOutlierIndex >= outliers.length) {
-            State.state.currentOutlierIndex = 0;
-        } else if (State.state.currentOutlierIndex === 0) {
-            State.state.currentOutlierIndex = outliers.length - 1;
+        const n = outliers.length;
+        if (s.currentOutlierIndex < 0 || s.currentOutlierIndex >= n) {
+            // Same convention as the graph: right starts at the first outlier, left at the last.
+            s.currentOutlierIndex = direction > 0 ? 0 : n - 1;
         } else {
-            State.state.currentOutlierIndex--;
+            s.currentOutlierIndex = (s.currentOutlierIndex + direction + n) % n;
         }
 
-        showCurrentOutlierProgress();
+        const p = outliers[s.currentOutlierIndex];
+        try {
+            Live.jumpToClipBeat(s.lastAnalysis, p.markerBeat);
+        } catch (e: any) {
+            Utils.debug("jumpToClipBeat failed: " + String(e));
+        }
+        showOutlier(p, s.currentOutlierIndex, n);
+    }
+
+    export function left(): void {
+        stepOutlier(-1);
     }
 
     export function right(): void {
-        if (!State.state.lastAnalysis) {
-            Utils.setProgress("No analysis available");
-            return;
-        }
-
-        if (State.state.lastAfterAnalysis) return;
-
-        const outliers = Analysis.getOutlierPoints();
-        if (outliers.length === 0) {
-            State.state.currentOutlierIndex = -1;
-            Utils.setProgress("No outliers found");
-            return;
-        }
-
-        if (State.state.currentOutlierIndex < 0 || State.state.currentOutlierIndex >= outliers.length) {
-            State.state.currentOutlierIndex = 0;
-        } else if (State.state.currentOutlierIndex === outliers.length - 1) {
-            State.state.currentOutlierIndex = 0;
-        } else {
-            State.state.currentOutlierIndex++;
-        }
-
-        showCurrentOutlierProgress();
+        stepOutlier(1);
     }
 
-    function showCurrentOutlierProgress(): void {
-        if (!State.state.lastAnalysis) return;
-        const outliers = Analysis.getOutlierPoints();
-
-        if (outliers.length === 0) {
-            State.state.currentOutlierIndex = -1;
-            Utils.setProgress("No outliers found");
-            return;
-        }
-
-        if (State.state.currentOutlierIndex < 0 || State.state.currentOutlierIndex >= outliers.length) {
-            State.state.currentOutlierIndex = 0;
-        }
-
-        const p = outliers[State.state.currentOutlierIndex];
-
+    function showOutlier(p: Model.AnalysisPoint, index: number, total: number): void {
         Utils.setProgress(
-            "Outlier " +
-            (State.state.currentOutlierIndex + 1) +
-            "/" +
-            outliers.length +
-            " Reason: " +
-            p.outlierReason +
-            " | Beat: " +
-            p.targetBeat.toFixed(2) +
-            " | Drift: " +
-            p.driftMs.toFixed(2) +
-            " ms"
+            "Outlier " + (index + 1) + "/" + total +
+            " Reason: " + p.outlierReason +
+            " | Beat: " + p.targetBeat.toFixed(2) +
+            " | Drift: " + p.driftMs.toFixed(2) + " ms"
         );
     }
 }
-
