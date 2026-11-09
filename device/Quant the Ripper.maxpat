@@ -102,8 +102,8 @@
 , 			{
 				"box" : 				{
 					"activetextcolor" : [ 1.0, 0.67843137254902, 0.337254901960784, 1.0 ],
-					"annotation" : "Jump to previous outlier beat\n\nAvailable after clicking Prep",
-					"annotation_name" : "Prep – Jump to Outlier",
+					"annotation" : "Jump to the previous outlier and move the Arrangement playhead to it.\n\nAvailable after clicking Prep",
+					"annotation_name" : "Previous Outlier",
 					"automation" : "←",
 					"automationon" : "←",
 					"fontname" : "Ableton Sans",
@@ -148,8 +148,8 @@
 , 			{
 				"box" : 				{
 					"activetextcolor" : [ 1.0, 0.67843137254902, 0.337254901960784, 1.0 ],
-					"annotation" : "Jump to previous outlier beat\n\nAvailable after clicking Prep",
-					"annotation_name" : "Prep – Jump to Outlier",
+					"annotation" : "Jump to the next outlier and move the Arrangement playhead to it.\n\nAvailable after clicking Prep",
+					"annotation_name" : "Next Outlier",
 					"automation" : "→",
 					"automationon" : "→",
 					"fontname" : "Ableton Sans",
@@ -193,7 +193,7 @@
 			}
 , 			{
 				"box" : 				{
-					"annotation" : "Creates a prepared duplicate of the selected Arrangement audio clip, analyzes its warp markers against the chosen start beat, beatgrid, and tolerance, and removes all markers that are not accepted or needed. The graph shows the drift profile after preparation.\n\nClick Prep again to reanalyze the prepared track",
+					"annotation" : "Creates a prepared duplicate of the selected Arrangement audio clip below the original, analyzes its warp markers against the chosen start beat, beatgrid and tolerance, and removes all markers that are not accepted. The graph shows the drift profile after preparation.\n\nClick Prep again to reanalyze the prepared clip; manual edits are kept. After changing Beatgrid, Tolerance or Start, Prep rebuilds the prepared clip from the original.",
 					"annotation_name" : "Prep",
 					"appearance" : 2,
 					"automation" : "Prep",
@@ -279,7 +279,7 @@
 			}
 , 			{
 				"box" : 				{
-					"annotation" : "Creates a second duplicate from the prepared clip and moves the accepted warp markers onto the target grid positions. The graph updates to show the post-snap result.",
+					"annotation" : "Re-reads the prepared clip (including manual edits), creates a quanted duplicate below it and moves the accepted warp markers onto the target grid positions. The graph updates to show the post-snap result.",
 					"annotation_name" : "Snap",
 					"appearance" : 2,
 					"automation" : "Snap",
@@ -351,7 +351,7 @@
 			}
 , 			{
 				"box" : 				{
-					"annotation" : "Sets the maximum allowed distance, in beats, between a target beat and the nearest warp marker for that marker to be accepted. Lower values are stricter; higher values accept markers farther away from the grid.\n",
+					"annotation" : "Sets the maximum allowed distance, in beats, between a target beat and the nearest warp marker for that marker to be accepted. Lower values are stricter; higher values accept markers farther away from the grid.\n\nMust be less than half the Beatgrid.",
 					"annotation_name" : "Tolerance",
 					"hint" : "",
 					"id" : "obj-15",
@@ -628,6 +628,30 @@
 			}
 , 			{
 				"box" : 				{
+					"id" : "obj-100",
+					"maxclass" : "message",
+					"numinlets" : 2,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 300.0, 260.0, 50.0, 20.0 ],
+					"text" : "debug 1"
+				}
+
+			}
+, 			{
+				"box" : 				{
+					"id" : "obj-101",
+					"maxclass" : "message",
+					"numinlets" : 2,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 356.0, 260.0, 50.0, 20.0 ],
+					"text" : "debug 0"
+				}
+
+			}
+, 			{
+				"box" : 				{
 					"id" : "obj-22",
 					"maxclass" : "newobj",
 					"numinlets" : 2,
@@ -678,18 +702,6 @@
 					"outlettype" : [ "" ],
 					"patching_rect" : [ 294.918401569128036, 193.571433186531067, 65.0, 20.0 ],
 					"text" : "clear_graph"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-31",
-					"maxclass" : "message",
-					"numinlets" : 2,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 236.500007748603821, 193.571433186531067, 47.0, 20.0 ],
-					"text" : "markers"
 				}
 
 			}
@@ -994,13 +1006,6 @@
 			}
 , 			{
 				"patchline" : 				{
-					"destination" : [ "obj-2", 0 ],
-					"source" : [ "obj-31", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
 					"destination" : [ "obj-14", 0 ],
 					"source" : [ "obj-39", 0 ]
 				}
@@ -1063,6 +1068,20 @@
 				"patchline" : 				{
 					"destination" : [ "obj-2", 0 ],
 					"source" : [ "obj-5", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-2", 0 ],
+					"source" : [ "obj-100", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-2", 0 ],
+					"source" : [ "obj-101", 0 ]
 				}
 
 			}
