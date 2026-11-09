@@ -103,6 +103,8 @@ function graph_json() {
         }
 
         graph = JSON.parse(s);
+        outlierPointIndices = [];
+        selectedOutlierIndex = -1;
 
         if (graph) {
             post("graph parsed, points=" + (graph.points ? graph.points.length : -1) + "\n");
@@ -113,7 +115,6 @@ function graph_json() {
                     outlierPointIndices.push(i);
                 }
             }
-            selectedOutlierIndex = -1;
         }
 
         mgraphics.redraw();
@@ -289,7 +290,11 @@ function paint() {
 
     // bars
     var n = points.length;
-    var stepPx = plotW / Math.max(n, 1);
+    var visible = 0;
+    for (var vi = 0; vi < n; vi++) {
+        if (points[vi].xBeat >= xMin && points[vi].xBeat <= xMax) visible++;
+    }
+    var stepPx = plotW / Math.max(visible, 1);
     var barW = Math.max(1, Math.min(4, stepPx * 0.7));
 
     for (var bi = 0; bi < n; bi++) {
@@ -320,7 +325,7 @@ function paint() {
 
         var rectY = Math.min(y, zeroY);
         var rectH = Math.max(1, Math.abs(y - zeroY));
-        mgraphics.rectangle(x, rectY, barW, rectH);
+        mgraphics.rectangle(x, rectY, thisBarW, rectH);
         mgraphics.fill();
     }
 
