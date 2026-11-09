@@ -5,7 +5,8 @@
   "scripts": {
     "build:quant": "tsc -p tsconfig.quant.json",
     "build:graph": "tsc -p tsconfig.graph.json",
-    "build": "npm run build:quant && npm run build:graph"
+    "build": "npm run build:quant && npm run build:graph",
+    "test": "npm run build && node --test test/"
   },
   "keywords": [],
   "author": "Daniel Koves",
