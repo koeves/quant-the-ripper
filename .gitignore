@@ -1,6 +1,6 @@
 /node_modules
 /junit.xml
 /coverage
-/plugin
+/device/*.js
 /ableton
 .DS_Store

@@ -3,7 +3,7 @@
         "target": "ES2019",
         "strict": true,
         "noEmitOnError": true,
-        "outFile": "plugin/graph.js",
+        "outFile": "device/graph.js",
         "rootDir": "src",
         "module": "none",
         "removeComments": false,

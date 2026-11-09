@@ -1,6 +1,6 @@
 "use strict";
 // Minimal in-memory stand-in for the Max/MSP LiveAPI and Task globals, enough to
-// run plugin/quant.js end to end under Node. Models only what the device uses.
+// run device/quant.js end to end under Node. Models only what the device uses.
 
 const fs = require("fs");
 const path = require("path");
@@ -212,7 +212,7 @@ function loadBundle(file, globals) {
         inlets: 0,
     }, globals);
     vm.createContext(ctx);
-    vm.runInContext(fs.readFileSync(path.join(process.env.QTR_PLUGIN_DIR || path.join(ROOT, "plugin"), file), "utf8"), ctx, { filename: file });
+    vm.runInContext(fs.readFileSync(path.join(process.env.QTR_PLUGIN_DIR || path.join(ROOT, "device"), file), "utf8"), ctx, { filename: file });
     ctx.__outlets = outlets;
     ctx.__posts = posts;
     ctx.__errors = errors;

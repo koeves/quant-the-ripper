@@ -3,7 +3,7 @@
         "target": "ES2021",
         "strict": true,
         "noEmitOnError": true,
-        "outFile": "plugin/quant.js",
+        "outFile": "device/quant.js",
         "rootDir": "src",
         "module": "none",
         "removeComments": false,

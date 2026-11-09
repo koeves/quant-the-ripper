@@ -6,7 +6,10 @@
     "build:quant": "tsc -p tsconfig.quant.json",
     "build:graph": "tsc -p tsconfig.graph.json",
     "build": "npm run build:quant && npm run build:graph",
-    "test": "npm run build && node --test test/"
+    "test": "npm run build && node --test test/",
+    "device:pack": "node scripts/amxd.js pack",
+    "device:unpack": "node scripts/amxd.js unpack",
+    "device:check": "node scripts/amxd.js check"
   },
   "keywords": [],
   "author": "Daniel Koves",
