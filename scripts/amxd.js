@@ -44,12 +44,49 @@ function readChunks(buf) {
 function unpack(amxd) {
     const chunks = readChunks(amxd);
     if (!chunks.ampf || !chunks.ptch) throw new Error("not an .amxd file (missing ampf/ptch)");
-    const ptch = chunks.ptch;
-    if (ptch.subarray(0, 4).toString("ascii") === "mx@c") {
-        throw new Error("frozen device: unfreeze it in Max before extracting");
-    }
+    let ptch = chunks.ptch;
+    if (ptch.subarray(0, 4).toString("ascii") === "mx@c") ptch = containerJson(ptch);
     const end = ptch[ptch.length - 1] === 0 ? ptch.length - 1 : ptch.length;
     return { deviceType: chunks.ampf.toString("ascii"), meta: chunks.meta, json: ptch.subarray(0, end).toString("utf8") };
+}
+
+/**
+ * Max 9 can save the patcher inside an "mx@c" container: a 16-byte header
+ * (tag, header size, 0, directory offset), the files, then a "dlst"
+ * directory of "dire" entries. A frozen device also holds its scripts and
+ * media there; an unfrozen one holds only the patcher JSON.
+ */
+function containerJson(ptch) {
+    const headerSize = ptch.readUInt32BE(4);
+    const dirOffset = ptch.readUInt32BE(12);
+    if (ptch.toString("ascii", dirOffset, dirOffset + 4) !== "dlst") throw new Error("mx@c container without a dlst directory");
+    const entries = [];
+    let pos = dirOffset + 8;
+    const dirEnd = dirOffset + ptch.readUInt32BE(dirOffset + 4);
+    while (pos + 8 <= Math.min(dirEnd, ptch.length) && ptch.toString("ascii", pos, pos + 4) === "dire") {
+        const direEnd = pos + ptch.readUInt32BE(pos + 4);
+        const entry = {};
+        for (let p = pos + 8; p + 8 <= direEnd; ) {
+            const tag = ptch.toString("ascii", p, p + 4);
+            const len = ptch.readUInt32BE(p + 4);
+            const body = ptch.subarray(p + 8, p + len);
+            if (tag === "type") entry.type = body.toString("ascii");
+            else if (tag === "fnam") entry.name = body.toString("utf8").replace(/\0+$/, "");
+            else if (tag === "sz32") entry.size = body.readUInt32BE(0);
+            else if (tag === "of32") entry.offset = body.readUInt32BE(0);
+            p += len;
+        }
+        entries.push(entry);
+        pos = direEnd;
+    }
+    const others = entries.filter((e) => e.type !== "JSON");
+    if (others.length) {
+        throw new Error("frozen device (" + others.map((e) => e.name).join(", ") + "): unfreeze it in Max before extracting");
+    }
+    const json = entries.find((e) => e.type === "JSON");
+    if (!json) throw new Error("mx@c container without a patcher");
+    const start = json.offset !== undefined ? json.offset : headerSize;
+    return ptch.subarray(start, start + json.size);
 }
 
 /** Builds an .amxd buffer from patcher JSON text. */

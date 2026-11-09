@@ -173,3 +173,42 @@ test("logic objects are outside the visible device area", () => {
         assert.ok(b.patching_rect[1] >= DEVICE_HEIGHT, `${b.id} "${b.text || b.maxclass}" is visible at y=${b.patching_rect[1]}`);
     }
 });
+
+/** Builds a Max 9 "mx@c" ptch container holding the given files. */
+function container(files) {
+    const be = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n); return b; };
+    const field = (tag, body) => Buffer.concat([Buffer.from(tag, "ascii"), be(8 + body.length), body]);
+    let offset = 16;
+    const bodies = [];
+    const dires = [];
+    for (const f of files) {
+        const body = Buffer.from(f.data, "utf8");
+        dires.push(field("dire", Buffer.concat([
+            field("type", Buffer.from(f.type, "ascii")),
+            field("fnam", Buffer.from(f.name + "\0\0\0", "utf8")),
+            field("sz32", be(body.length)),
+            field("of32", be(offset)),
+        ])));
+        bodies.push(body);
+        offset += body.length;
+    }
+    const dlst = field("dlst", Buffer.concat(dires));
+    const head = Buffer.concat([Buffer.from("mx@c", "ascii"), be(16), be(0), be(offset)]);
+    const ptch = Buffer.concat([head, ...bodies, dlst]);
+    const chunk = (tag, body) => { const h = Buffer.alloc(8); h.write(tag, 0, "ascii"); h.writeUInt32LE(body.length, 4); return Buffer.concat([h, body]); };
+    return Buffer.concat([chunk("ampf", Buffer.from("aaaa")), chunk("meta", Buffer.from([7, 0, 0, 0])), chunk("ptch", ptch)]);
+}
+
+test("unpack reads a device Max 9 saved in its mx@c container", () => {
+    const json = '{"patcher":{"boxes":[]}}';
+    const amxd = container([{ type: "JSON", name: "Quant the Ripper.amxd", data: json + "\0" }]);
+    assert.equal(unpack(amxd).json, json);
+});
+
+test("unpack refuses a frozen device that embeds its scripts", () => {
+    const amxd = container([
+        { type: "JSON", name: "Quant the Ripper.amxd", data: "{}\0" },
+        { type: "TEXT", name: "quant.js", data: "post(1)" },
+    ]);
+    assert.throws(() => unpack(amxd), /frozen device \(quant\.js\)/);
+});
