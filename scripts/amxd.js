@@ -56,7 +56,7 @@ function unpack(amxd) {
  * directory of "dire" entries. A frozen device also holds its scripts and
  * media there; an unfrozen one holds only the patcher JSON.
  */
-function containerJson(ptch) {
+function containerEntries(ptch) {
     const headerSize = ptch.readUInt32BE(4);
     const dirOffset = ptch.readUInt32BE(12);
     if (ptch.toString("ascii", dirOffset, dirOffset + 4) !== "dlst") throw new Error("mx@c container without a dlst directory");
@@ -76,17 +76,68 @@ function containerJson(ptch) {
             else if (tag === "of32") entry.offset = body.readUInt32BE(0);
             p += len;
         }
+        const start = entry.offset !== undefined ? entry.offset : headerSize;
+        entry.data = ptch.subarray(start, start + entry.size);
         entries.push(entry);
         pos = direEnd;
     }
+    return entries;
+}
+
+function containerJson(ptch) {
+    const entries = containerEntries(ptch);
     const others = entries.filter((e) => e.type !== "JSON");
     if (others.length) {
         throw new Error("frozen device (" + others.map((e) => e.name).join(", ") + "): unfreeze it in Max before extracting");
     }
     const json = entries.find((e) => e.type === "JSON");
     if (!json) throw new Error("mx@c container without a patcher");
-    const start = json.offset !== undefined ? json.offset : headerSize;
-    return ptch.subarray(start, start + json.size);
+    return json.data;
+}
+
+/** Files a patcher loads from disk: scripts that are not embedded, and pictures that are not embedded. */
+function externalFiles(patcher, out = new Set()) {
+    for (const { box } of patcher.boxes || []) {
+        if (box.patcher) externalFiles(box.patcher, out);
+        const embedded = box.embed === 1 || (box.textfile && box.textfile.embed === 1);
+        if (box.filename && !embedded) out.add(box.filename);
+        if (box.pic && !embedded) out.add(box.pic);
+    }
+    return out;
+}
+
+/**
+ * Checks whether a device can be shared on its own: every file the patcher
+ * loads from disk must be embedded (a frozen device carries them in its mx@c
+ * container). With `buildDir`, embedded files are also compared with the
+ * files there, to catch a device frozen with stale scripts.
+ */
+function inspect(amxd, buildDir) {
+    const chunks = readChunks(amxd);
+    const ptch = chunks.ptch;
+    const frozen = ptch.subarray(0, 4).toString("ascii") === "mx@c";
+    const entries = frozen ? containerEntries(ptch) : [];
+    const jsonEntry = entries.find((e) => e.type === "JSON");
+    const jsonBuf = frozen ? jsonEntry.data : ptch;
+    const json = jsonBuf.toString("utf8").replace(/\0+$/, "");
+    const files = entries.filter((e) => e.type !== "JSON");
+    const problems = [];
+    const notes = [];
+    for (const name of externalFiles(JSON.parse(json).patcher)) {
+        const file = files.find((f) => f.name === name);
+        if (!file) {
+            problems.push(`${name} is loaded from disk and not embedded`);
+            continue;
+        }
+        const built = buildDir && path.join(buildDir, name);
+        if (built && fs.existsSync(built)) {
+            if (fs.readFileSync(built).equals(file.data)) notes.push(`${name} embedded, matches ${path.relative(process.cwd(), built)}`);
+            else problems.push(`${name} embedded but differs from ${path.relative(process.cwd(), built)} (stale build?)`);
+        } else {
+            notes.push(`${name} embedded (${file.size} bytes)`);
+        }
+    }
+    return { frozen, files: files.map((f) => ({ type: f.type, name: f.name, size: f.size })), problems, notes };
 }
 
 /** Builds an .amxd buffer from patcher JSON text. */
@@ -119,12 +170,24 @@ function main(argv) {
             process.exit(1);
         }
         console.log("device in sync");
+    } else if (cmd === "inspect") {
+        const amxd = a || DEFAULT_AMXD;
+        const report = inspect(fs.readFileSync(amxd), b || DEVICE_DIR);
+        console.log(`${path.basename(amxd)}: ${report.frozen ? "frozen" : "not frozen"}`);
+        for (const f of report.files) console.log(`  contains ${f.type} ${f.name} (${f.size} bytes)`);
+        for (const n of report.notes) console.log(`  ok: ${n}`);
+        for (const p of report.problems) console.log(`  problem: ${p}`);
+        if (report.problems.length) {
+            console.log("Not self-contained. Run npm run build, open the device in Max, click Freeze Device, and save.");
+            process.exit(1);
+        }
+        console.log("Self-contained: ready to share.");
     } else {
-        console.error("usage: node scripts/amxd.js pack|unpack|check [src] [dst]");
+        console.error("usage: node scripts/amxd.js pack|unpack|check|inspect [src] [dst]");
         process.exit(2);
     }
 }
 
 if (require.main === module) main(process.argv.slice(2));
 
-module.exports = { pack, unpack, DEFAULT_MAXPAT, DEFAULT_AMXD };
+module.exports = { pack, unpack, inspect, DEFAULT_MAXPAT, DEFAULT_AMXD };

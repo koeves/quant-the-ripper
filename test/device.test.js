@@ -4,7 +4,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
-const { pack, unpack, DEFAULT_MAXPAT, DEFAULT_AMXD } = require("../scripts/amxd");
+const { pack, unpack, inspect, DEFAULT_MAXPAT, DEFAULT_AMXD } = require("../scripts/amxd");
 const { createLiveSet, loadQuant, loadBundle } = require("./mock-live");
 
 const maxpatText = fs.readFileSync(DEFAULT_MAXPAT, "utf8");
@@ -211,4 +211,31 @@ test("unpack refuses a frozen device that embeds its scripts", () => {
         { type: "TEXT", name: "quant.js", data: "post(1)" },
     ]);
     assert.throws(() => unpack(amxd), /frozen device \(quant\.js\)/);
+});
+
+test("inspect: the dev device loads its scripts from disk, so it is not shareable", () => {
+    const report = inspect(fs.readFileSync(DEFAULT_AMXD));
+    assert.equal(report.frozen, false);
+    assert.deepEqual(report.problems.sort(), [
+        "graph.js is loaded from disk and not embedded",
+        "quant.js is loaded from disk and not embedded",
+    ]);
+});
+
+test("inspect: a frozen device with the current scripts is self-contained", () => {
+    const os = require("os");
+    const path = require("path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qtr-"));
+    fs.writeFileSync(path.join(dir, "quant.js"), "post('new')");
+    fs.writeFileSync(path.join(dir, "graph.js"), "post('graph')");
+    const amxd = container([
+        { type: "JSON", name: "Quant the Ripper.amxd", data: maxpatText + "\0" },
+        { type: "TEXT", name: "quant.js", data: "post('new')" },
+        { type: "TEXT", name: "graph.js", data: "post('graph')" },
+    ]);
+    assert.deepEqual(inspect(amxd, dir).problems, []);
+
+    fs.writeFileSync(path.join(dir, "quant.js"), "post('newer')");
+    assert.match(inspect(amxd, dir).problems.join(), /quant\.js embedded but differs/);
+    fs.rmSync(dir, { recursive: true });
 });

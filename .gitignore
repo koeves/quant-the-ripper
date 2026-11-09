@@ -4,3 +4,4 @@
 /device/*.js
 /ableton
 .DS_Store
+/dist

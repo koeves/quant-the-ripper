@@ -58,6 +58,7 @@ The grid starts at 1.1.1 when the markers fit it, otherwise at the first kick. D
 - Kick detection looks at the low end (below about 150 Hz); it works best on four-to-the-floor material with a clear kick. Without Detect the device depends on Ableton's transient markers
 - Drift tracking follows speed changes up to 2% per beat; sudden jumps (a skip, an edit) show up as outliers or gaps
 - Kick detection and the `add_warp_marker` call it uses need Live 11 or later
+- `quant.js` runs in Max's `v8` object, which needs Max 9
 
 ## Installation
 - Download it from MaxForLive: https://maxforlive.com/library/device/15084/quant-the-ripper
@@ -91,7 +92,14 @@ npm test
 
 Click the `debug 1` message box in the patcher to print verbose diagnostics to the Max console (`debug 0` turns it off).
 
-For a release, open the device in Max, Freeze it so the scripts are embedded, and save the frozen copy outside the repo for upload.
+### Release
+`device/Quant the Ripper.amxd` loads `quant.js` and `graph.js` from `device/`, so it does not work on its own. To make a shareable copy:
+1. `npm run build`
+2. Open the device in Max, click Freeze Device, and save the frozen copy as `dist/Quant the Ripper.amxd` (gitignored); keep `device/` unfrozen
+3. Check that the current scripts are embedded:
+```bash
+npm run device:inspect -- "dist/Quant the Ripper.amxd"
+```
 
 ## Licence
 Apache-2.0, see [LICENSE](LICENSE).

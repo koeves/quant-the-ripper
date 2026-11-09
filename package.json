@@ -9,7 +9,8 @@
     "test": "npm run build && node --test test/",
     "device:pack": "node scripts/amxd.js pack",
     "device:unpack": "node scripts/amxd.js unpack",
-    "device:check": "node scripts/amxd.js check"
+    "device:check": "node scripts/amxd.js check",
+    "device:inspect": "node scripts/amxd.js inspect"
   },
   "keywords": [],
   "author": "Daniel Koves",
